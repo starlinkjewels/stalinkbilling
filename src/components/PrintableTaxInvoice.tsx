@@ -443,8 +443,8 @@ export function PrintableTaxInvoice({
               <td style={{ ...cell, ...num, fontWeight: 700, verticalAlign: "middle" }}>
                 {fmtNum(totalQty)}
               </td>
-              <td style={{ ...cell, fontWeight: 600 }}>Taxable Value</td>
-              <td style={{ ...cell, ...num, fontWeight: 600 }}>{fmtNum(taxableTotal)}</td>
+              <td style={{ ...taxCell, fontWeight: 600 }}>Taxable Value</td>
+              <td style={{ ...taxCell, ...num, fontWeight: 600 }}>{fmtNum(taxableTotal)}</td>
             </tr>
 
             {/* ---- Net Rate / Remark / bank block beside the tax summary ----
@@ -477,18 +477,18 @@ export function PrintableTaxInvoice({
                 )}
                 <BankBlock company={company} s={s} />
               </td>
-              <td style={cell}>{taxRows[0].label}</td>
-              <td style={{ ...cell, ...num }}>{fmtNum(taxRows[0].value)}</td>
+              <td style={taxCell}>{taxRows[0].label}</td>
+              <td style={{ ...taxCell, ...num }}>{fmtNum(taxRows[0].value)}</td>
             </tr>
             {taxRows.slice(1).map((row) => (
               <tr key={row.label}>
-                <td style={cell}>{row.label}</td>
-                <td style={{ ...cell, ...num }}>{fmtNum(row.value)}</td>
+                <td style={taxCell}>{row.label}</td>
+                <td style={{ ...taxCell, ...num }}>{fmtNum(row.value)}</td>
               </tr>
             ))}
             <tr>
-              <td style={{ ...cell, fontWeight: 700, fontSize: s(11) }}>Net Total</td>
-              <td style={{ ...cell, ...num, fontWeight: 700, fontSize: s(11) }}>
+              <td style={{ ...taxCell, fontWeight: 700, fontSize: s(11) }}>Net Total</td>
+              <td style={{ ...taxCell, ...num, fontWeight: 700, fontSize: s(11) }}>
                 {fmtNum(inv.total)}
               </td>
             </tr>
