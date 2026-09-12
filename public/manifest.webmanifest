@@ -1,0 +1,17 @@
+{
+  "name": "STARLINK JEWELS — Billing & Inventory ERP",
+  "short_name": "STARLINK JEWELS",
+  "description": "Keyboard-first desktop billing, inventory, and accounting software.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f7f8fb",
+  "theme_color": "#2b55a3",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}

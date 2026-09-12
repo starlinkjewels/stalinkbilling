@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(timeout 90 npm install qrcode-generator@1.4.4 --no-audit --no-fund)",
+      "Bash(sed -i 's|import { PrintableInvoice } from \"@/components/PrintableInvoice\";|import { PrintableTaxInvoice } from \"@/components/PrintableTaxInvoice\";|; s|<PrintableInvoice |<PrintableTaxInvoice |g' 'src/routes/sales.$id.tsx')",
+      "Read(//c/Users/Ami Sayanja/Downloads/desktop-ledger-main/desktop-ledger-main/src/routes/**)",
+      "Bash(cd \"C:/Users/Ami Sayanja/Downloads/desktop-ledger-main/desktop-ledger-main\" && grep -rn \"shippingAddress\\\\|GSTIN\\\\|creditLimit\" src/routes/parties_.\\\\$id.tsx src/routes/parties.tsx | head -25)",
+      "Bash(cd \"C:/Users/Ami Sayanja/Downloads/desktop-ledger-main/desktop-ledger-main\" && grep -n \"gstin\\\\|address\\\\|Field\\\\b\" src/routes/parties_.\\\\$id.tsx | head -30)",
+      "Bash(npx tsc *)",
+      "Bash(npm run *)",
+      "Bash(npx esbuild *)",
+      "Bash(node node_modules/.cache/audit.test.cjs)",
+      "Bash(node tests/run-screens.cjs)",
+      "Bash(timeout 180 npm install --no-save esbuild@0.25.0 --no-audit --no-fund)",
+      "Bash(timeout 240 npm install --no-save esbuild --legacy-peer-deps --no-audit --no-fund)"
+    ]
+  }
+}
