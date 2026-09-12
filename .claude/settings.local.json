@@ -12,7 +12,13 @@
       "Bash(node node_modules/.cache/audit.test.cjs)",
       "Bash(node tests/run-screens.cjs)",
       "Bash(timeout 180 npm install --no-save esbuild@0.25.0 --no-audit --no-fund)",
-      "Bash(timeout 240 npm install --no-save esbuild --legacy-peer-deps --no-audit --no-fund)"
+      "Bash(timeout 240 npm install --no-save esbuild --legacy-peer-deps --no-audit --no-fund)",
+      "Bash(npx vite *)",
+      "Bash(node \"C:/Users/AMISAY~1/AppData/Local/Temp/claude/c--Users-Ami-Sayanja-Downloads-desktop-ledger-main-desktop-ledger-main/f80ad339-991f-4a62-bf00-824c3e686a5f/scratchpad/render-bill.cjs\")",
+      "Bash(node -e ' *)",
+      "Bash(cd \"C:/Users/Ami Sayanja/Downloads/desktop-ledger-main/desktop-ledger-main\" && grep -n \"max-w-\\\\[794px\\\\]\\\\|p-6\\\\|A4_W\\\\|preview-fit-scale\" src/routes/sales.\\\\$id.tsx src/routes/purchase.\\\\$id.tsx)",
+      "Bash(npx eslint *)",
+      "Bash(node -e \"console.log\\('esbuild version:', require\\('./node_modules/esbuild/package.json'\\).version\\)\")"
     ]
   }
 }

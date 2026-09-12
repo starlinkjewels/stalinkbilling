@@ -14,7 +14,7 @@ const firebaseConfig = {
   storageBucket: "starlinkjewels109.firebasestorage.app",
   messagingSenderId: "192385163202",
   appId: "1:192385163202:web:6499e21aa7c34cd9e7c05b",
-  measurementId: "G-FFTQZDHDDM"
+  measurementId: "G-FFTQZDHDDM",
 };
 
 /** Named Firestore database (not the "(default)" one) */

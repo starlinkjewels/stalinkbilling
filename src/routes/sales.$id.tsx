@@ -325,14 +325,34 @@ function InvoiceDetailPage() {
               }`}</style>
               <div className="flex">
                 <div className="flex-1 pr-3">
-                  <PrintableTaxInvoice inv={inv} company={co} mode="sale" className="" scale={0.62} />
+                  <PrintableTaxInvoice
+                    inv={inv}
+                    company={co}
+                    mode="sale"
+                    className=""
+                    scale={0.62}
+                    /* Landscape A4 (793px) less this sheet's own 6mm print
+                       padding — each copy fills its half of the page the same
+                       way a single A4 copy fills a whole one. */
+                    pageHeight={748}
+                  />
                 </div>
                 <div
                   className="shrink-0"
                   style={{ borderLeft: "1px dashed #999", margin: "0 4px" }}
                 />
                 <div className="flex-1 pl-3">
-                  <PrintableTaxInvoice inv={inv} company={co} mode="sale" className="" scale={0.62} />
+                  <PrintableTaxInvoice
+                    inv={inv}
+                    company={co}
+                    mode="sale"
+                    className=""
+                    scale={0.62}
+                    /* Landscape A4 (793px) less this sheet's own 6mm print
+                       padding — each copy fills its half of the page the same
+                       way a single A4 copy fills a whole one. */
+                    pageHeight={748}
+                  />
                 </div>
               </div>
             </div>
@@ -346,7 +366,11 @@ function InvoiceDetailPage() {
               <div
                 ref={printRef}
                 id="print-invoice"
-                className="preview-fit-scale bg-white w-full max-w-[794px] shadow-lg print:shadow-none print:m-0 p-6"
+                /* 12mm, matching the @page margin the print CSS applies — with
+                   p-6 (24px) the preview showed the bill wider than it
+                   actually prints, so the columns on screen were never the
+                   columns on paper. */
+                className="preview-fit-scale bg-white w-full max-w-[794px] shadow-lg print:shadow-none print:m-0 p-[12mm]"
                 style={{
                   width: A4_W,
                   minHeight: A4_H,

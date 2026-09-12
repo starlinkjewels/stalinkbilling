@@ -213,7 +213,11 @@ function BillDetailPage() {
           >
             <div
               ref={printRef}
-              className="preview-fit-scale bg-white w-full max-w-[794px] shadow-lg print:shadow-none print:m-0 p-6"
+              /* 12mm, matching the @page margin the print CSS applies — with
+                   p-6 (24px) the preview showed the bill wider than it
+                   actually prints, so the columns on screen were never the
+                   columns on paper. */
+              className="preview-fit-scale bg-white w-full max-w-[794px] shadow-lg print:shadow-none print:m-0 p-[12mm]"
               style={{
                 width: A4_W,
                 minHeight: A4_H,
@@ -221,7 +225,12 @@ function BillDetailPage() {
                 transformOrigin: "top left",
               }}
             >
-              <PrintableTaxInvoice inv={inv} company={co} mode="purchase" className="print-visible" />
+              <PrintableTaxInvoice
+                inv={inv}
+                company={co}
+                mode="purchase"
+                className="print-visible"
+              />
             </div>
           </div>
         )}

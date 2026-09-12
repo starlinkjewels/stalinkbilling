@@ -67,7 +67,9 @@ export function stateCodeOfPlace(place?: string): string {
   if (!p) return "";
   const tail = p.match(/(\d{2})\s*$/);
   if (tail && GST_STATES[tail[1]]) return tail[1];
-  const byName = Object.entries(GST_STATES).find(([, name]) => name === p.replace(/[-\s]*\d*$/, ""));
+  const byName = Object.entries(GST_STATES).find(
+    ([, name]) => name === p.replace(/[-\s]*\d*$/, ""),
+  );
   return byName ? byName[0] : "";
 }
 
@@ -147,9 +149,7 @@ export function amountInWords(n: number): string {
   const under1000 = (num: number): string => {
     if (num < 20) return ones[num];
     if (num < 100) return tens[Math.floor(num / 10)] + (num % 10 ? " " + ones[num % 10] : "");
-    return (
-      ones[Math.floor(num / 100)] + " Hundred" + (num % 100 ? " " + under1000(num % 100) : "")
-    );
+    return ones[Math.floor(num / 100)] + " Hundred" + (num % 100 ? " " + under1000(num % 100) : "");
   };
   // Recursive rather than four fixed buckets, so the crore group can itself
   // be larger than 999 ("One Thousand Two Hundred Crore") instead of wrapping

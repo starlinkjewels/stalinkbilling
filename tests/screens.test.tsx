@@ -28,7 +28,7 @@ import { PrintablePartyStatement } from "@/components/PrintablePartyStatement";
 import { CashBankTransferDialog } from "@/components/CashBankTransferDialog";
 import { PartyDialog } from "@/routes/parties";
 import { DataTable } from "@/components/DataTable";
-import { PrintableInvoice } from "@/components/PrintableInvoice";
+import { PrintableTaxInvoice } from "@/components/PrintableTaxInvoice";
 import { ThermalReceipt } from "@/components/ThermalReceipt";
 import { PrintableReturn } from "@/components/PrintableReturn";
 import { fmtMoney, ymd } from "@/lib/format";
@@ -831,23 +831,58 @@ async function runAll(): Promise<Results> {
     document.body.appendChild(gridHost);
     const gridRoot = createRoot(gridHost);
 
-    /** Widest row wins as the expected width; every row must equal it. */
+    /** Widest row wins as the expected width; every row must equal it.
+     *
+     * ROWSPAN-aware, because the printed bill leans on it heavily: the bank
+     * details block spans down the side of the tax summary, and how far it
+     * spans is computed from how many tax rows there happen to be. Counting
+     * colSpan alone would score every row the block reaches into as short and
+     * report a fault that isn't there — while missing the one that would
+     * matter, a rowspan off by one leaving a ragged hole in the grid. */
     const checkGrid = (label: string) => {
       // These documents contain several tables (the Invoice #/Date block is
-      // one). Pick the LINE table — the one whose header row has "Qty".
+      // one). Pick the LINE table — the one whose header row has the
+      // quantity column in it.
       const table = Array.from(gridHost.querySelectorAll("table")).find((t) =>
-        (t.rows[0]?.textContent ?? "").includes("Qty"),
+        /Qty|Carat/.test(t.rows[0]?.textContent ?? ""),
       );
       assert(!!table, `${label}: found the printed line table`);
       if (!table) return;
-      const widthOf = (tr: HTMLTableRowElement) =>
-        Array.from(tr.cells).reduce((n, c) => n + (c.colSpan || 1), 0);
-      const widths = Array.from(table.rows).map(widthOf);
-      const expected = Math.max(...widths);
-      const bad = widths.filter((w) => w !== expected).length;
+
+      // Lay the cells out the way a browser does, so a cell carried down from
+      // an earlier row still occupies its column here. Declared per call —
+      // checkGrid runs once per case and must not inherit the last one's
+      // spans.
+      const spansFrom: { col: number; colSpan: number; rowSpan: number }[][] = [];
+      const filled: number[] = [];
+      Array.from(table.rows).forEach((tr, r) => {
+        filled[r] = filled[r] ?? 0;
+        let col = 0;
+        const taken = new Set<number>();
+        // Columns already claimed by a rowspan from above.
+        for (let above = 0; above < r; above++) {
+          const spans = spansFrom[above] ?? [];
+          for (const sp of spans) {
+            if (above + sp.rowSpan > r) for (let i = 0; i < sp.colSpan; i++) taken.add(sp.col + i);
+          }
+        }
+        spansFrom[r] = [];
+        for (const c of Array.from(tr.cells)) {
+          while (taken.has(col)) col++;
+          const colSpan = c.colSpan || 1;
+          const rowSpan = c.rowSpan || 1;
+          if (rowSpan > 1) spansFrom[r].push({ col, colSpan, rowSpan });
+          for (let i = 0; i < colSpan; i++) taken.add(col + i);
+          col += colSpan;
+        }
+        filled[r] = taken.size;
+      });
+
+      const expected = Math.max(...filled);
+      const bad = filled.filter((w) => w !== expected).length;
       assert(
         bad === 0,
-        `${label}: ${bad} row(s) don't span ${expected} columns — got ${widths.join(",")}`,
+        `${label}: ${bad} row(s) don't span ${expected} columns — got ${filled.join(",")}`,
       );
     };
 
@@ -866,7 +901,7 @@ async function runAll(): Promise<Results> {
     for (const [label, over] of cases) {
       await act(async () => {
         gridRoot.render(
-          <PrintableInvoice inv={baseInv(over)} company={CompanyRepo.get()} mode="sale" />,
+          <PrintableTaxInvoice inv={baseInv(over)} company={CompanyRepo.get()} mode="sale" />,
         );
       });
       checkGrid(label);
@@ -1857,7 +1892,11 @@ async function runAll(): Promise<Results> {
          means HSN and the assertion below would be about the wrong box. */
       const qty = row.querySelector('[id^="qty-"]') as HTMLInputElement;
       assert(!!qty, "step back: the line has a quantity box");
-      const price = fields[fields.length - 1];
+      /* The box immediately after Quantity — which is Price. Not "the last
+         input on the row": a GST bill (now the default) puts a GST% box
+         after Price, so last-input asserted about the wrong control. */
+      const price = fields[fields.indexOf(qty) + 1];
+      assert(!!price, "step back: the line has a price box after the quantity");
 
       /* Enter walks ALONG the row. It used to send Quantity straight to the
          next blank item row, jumping clean over Price — the commonest
@@ -2521,9 +2560,14 @@ async function runAll(): Promise<Results> {
     });
     await settleMs(150);
 
+    /* A BILL LINE is a row with a quantity box in it — not "any row in the
+       document that mentions rupees". The form keeps a hidden print copy of
+       the invoice mounted at all times, and that copy has money-bearing rows
+       of its own which come and go with the bill's balance, so the old
+       ₹-based count was really counting two different things at once. */
     const lineCount = () =>
       Array.from(document.querySelectorAll("tbody tr")).filter((tr) =>
-        (tr.textContent ?? "").includes("₹"),
+        tr.querySelector('[id^="qty-"]'),
       ).length;
     const before = lineCount();
     assert(before >= 1, "change item: a line was added to work with");
@@ -2794,7 +2838,7 @@ async function runAll(): Promise<Results> {
     };
 
     const bill = await show(
-      <PrintableInvoice inv={splitInv} company={CompanyRepo.get()} mode="sale" />,
+      <PrintableTaxInvoice inv={splitInv} company={CompanyRepo.get()} mode="sale" />,
     );
     has(bill, "Cash", "printed split: the printed bill names the cash part");
     has(bill, "HDFC Current", "printed split: and names the ACCOUNT, not just the word Bank");
@@ -2810,7 +2854,7 @@ async function runAll(): Promise<Results> {
     /* An ordinary bill must read exactly as it always did — one mode, named,
        and NO amount, because "Cash ₹1,000" on a ₹1,000 bill is noise. */
     const plain = await show(
-      <PrintableInvoice
+      <PrintableTaxInvoice
         inv={{ ...splitInv, id: "PRNPLAIN", paidSplits: undefined } as never}
         company={CompanyRepo.get()}
         mode="sale"
@@ -2838,6 +2882,24 @@ async function runAll(): Promise<Results> {
     } as never);
 
     await renderRoute("/sales/new");
+
+    /* This case is about SPLITTING a payment, not about tax, and its whole
+       arithmetic is written in round numbers (10 x ₹100 = ₹1,000, settled
+       400 + 600). New bills now open as GST tax invoices by default, which
+       would make the bill ₹1,180 and leave the two parts short of the total
+       — so turn GST off explicitly here rather than leaning on whatever the
+       default happens to be. */
+    const gstBox = Array.from(document.querySelectorAll('input[type="checkbox"]')).find((c) =>
+      /GST Bill/.test(c.closest("label")?.textContent ?? ""),
+    ) as HTMLInputElement | undefined;
+    assert(!!gstBox, "split bill: found the GST toggle");
+    if (gstBox?.checked) {
+      await act(async () => {
+        gstBox.click();
+      });
+      await settleMs(120);
+    }
+
     const partyBox = document.querySelector(
       'input[placeholder="Type name or search…"]',
     ) as HTMLInputElement | null;
@@ -3811,8 +3873,12 @@ async function runAll(): Promise<Results> {
       assert(!heads.includes("Disc%"), `bill columns: and no per-line Disc% column — ${heads}`);
       // The columns that must still be there, so this cannot pass by the grid
       // having failed to render at all.
+      /* The quantity column is headed "Carat" on this build — the printed tax
+         invoice rules it that way, and the entry grid matches it so a weight
+         isn't typed into the wrong box. Matched by either name: this assert
+         exists to prove the grid rendered at all, not to pin its wording. */
       assert(
-        heads.some((h) => /qty/i.test(h)) && heads.some((h) => /price|rate/i.test(h)),
+        heads.some((h) => /qty|carat/i.test(h)) && heads.some((h) => /price|rate/i.test(h)),
         `bill columns: while Qty and Price are still there — ${heads}`,
       );
     }

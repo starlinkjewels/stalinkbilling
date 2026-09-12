@@ -10,8 +10,12 @@ interface Props {
   className?: string;
 }
 
-/** Black-and-white credit/debit note, matching PrintableInvoice's layout so
- * every document type in the app prints the same professional way. */
+/** Black-and-white credit/debit note.
+ *
+ * Deliberately its OWN layout, not the tax invoice's: a credit note reverses
+ * a bill and is read alongside it, so looking distinct from the invoice is
+ * the point. (It predates PrintableTaxInvoice and kept the older, plainer
+ * layout when sale/purchase bills moved to the trade's ruled format.) */
 export function PrintableReturn({ ret, company, mode, className = "print-area" }: Props) {
   const isSaleReturn = mode === "sale-return";
   const gstOn = ret.gstEnabled !== false;

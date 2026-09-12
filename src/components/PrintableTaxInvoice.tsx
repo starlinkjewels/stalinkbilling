@@ -27,7 +27,26 @@ interface Props {
    * layout size, so a zoomed block can get cut off mid-page even though it
    * visually looks like it fits — real layout-level scaling avoids that. */
   scale?: number;
+  /**
+   * How tall the bill's ruled frame should be, in FINAL rendered pixels (not
+   * scaled by `scale` — it describes the paper, not the drawing).
+   *
+   * A professional bill occupies the whole sheet: the signature block belongs
+   * at the foot of the page, not floating two-thirds of the way down with a
+   * band of white under it. The line-item area stretches to make up whatever
+   * the rest of the bill doesn't use, so a one-line bill and a ten-line bill
+   * both end at the same place.
+   *
+   * A4 portrait at 96dpi is 1123px tall, less the 12mm print margin top and
+   * bottom (see the @page rule in styles.css) — about 1032px of usable
+   * height. This is a MINIMUM, so a bill with more lines than fit simply
+   * grows and flows onto a second page as it always did.
+   */
+  pageHeight?: number;
 }
+
+/** A4 portrait at 96dpi (1123px) less the 12mm print margins top and bottom. */
+const A4_CONTENT_HEIGHT = 1030;
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
 const BD = "1px solid #000";
@@ -55,6 +74,7 @@ export function PrintableTaxInvoice({
   mode,
   className = "print-area",
   scale = 1,
+  pageHeight = A4_CONTENT_HEIGHT,
 }: Props) {
   const gstOn = inv.gstEnabled !== false;
   const isSale = mode === "sale";
@@ -66,22 +86,31 @@ export function PrintableTaxInvoice({
   const s = (n: number) => Math.round(n * scale * 10) / 10;
 
   // ---- Figures -----------------------------------------------------------
-  // Recomputed from the lines rather than read off inv.subtotal, for the same
-  // reason the old printable did it: the stored subtotal is pre-line-discount,
-  // while the "Taxable Value" a GST bill declares is post-discount.
+  // "Taxable Value" is NOT inv.subtotal: the stored subtotal is pre-line-
+  // discount, while what a GST bill declares as taxable is post-discount.
+  //
+  // The per-line figure is rounded to paise BEFORE being summed, which is
+  // exactly what InvoiceForm's recalc() does when it builds inv.total. Summing
+  // raw and rounding once looks equivalent and isn't: on a multi-line bill the
+  // two disagree by a paisa, and since Net Total comes from recalc's version,
+  // the printed column would then visibly fail to add up.
+  const lineTaxable = (l: Invoice["lineItems"][number]) =>
+    r2(l.qty * l.price * (1 - l.discountPct / 100));
+
   let taxableTotal = 0;
-  let gstTotal = 0;
   let totalPcs = 0;
   let totalQty = 0;
   inv.lineItems.forEach((l) => {
-    const taxable = l.qty * l.price * (1 - l.discountPct / 100);
-    taxableTotal += taxable;
-    if (gstOn) gstTotal += taxable * (l.gstRate / 100);
+    taxableTotal += lineTaxable(l);
     totalPcs += l.pcs ?? 0;
     totalQty += l.qty;
   });
   taxableTotal = r2(taxableTotal);
-  gstTotal = r2(gstTotal);
+
+  // The STORED tax, not a fresh recomputation — this is the figure that
+  // actually produced inv.total, so taking it verbatim is what guarantees
+  // Taxable Value + GST + TCS ± Round Off equals the Net Total printed below.
+  const gstTotal = gstOn ? r2(inv.taxAmount || 0) : 0;
 
   // Whole-bill discount and shipping get their own declared rows so the
   // column still adds up to the Net Total — the trade's pre-printed layout has
@@ -129,7 +158,7 @@ export function PrintableTaxInvoice({
    * Built once and reused for both the rendering AND the bank block's
    * rowSpan, so the two can never disagree about how tall this block is.
    */
-  const taxRows: { label: string; value: number }[] = [];
+  const taxRows: { label: string; value: number; blank?: boolean }[] = [];
   if (discount > 0) taxRows.push({ label: "Less: Discount", value: -discount });
   if (shipping > 0) taxRows.push({ label: "Shipping Charge", value: shipping });
   if (gstOn) {
@@ -143,8 +172,9 @@ export function PrintableTaxInvoice({
   if (Math.abs(roundOff) > 0.001) taxRows.push({ label: "Round Off +/-", value: roundOff });
   // A non-GST bill with nothing else on it would otherwise leave the left
   // block rowspanning across the Net Total row alone, which is legal but
-  // squashes the bank details into one line.
-  if (!taxRows.length) taxRows.push({ label: "", value: 0 });
+  // squashes the bank details into one line. `blank` so the spacer prints as
+  // empty ruling rather than as an unexplained "0.00" above the Net Total.
+  if (!taxRows.length) taxRows.push({ label: "", value: 0, blank: true });
 
   const placeOfSupply =
     inv.placeOfSupply || party?.state || placeLabel(stateCodeOfGstin(party?.gstin)) || "";
@@ -152,13 +182,6 @@ export function PrintableTaxInvoice({
   const qr = inv.irn ? qrSvgDataUri(inv.irn) : "";
   const title = gstOn ? "Tax Invoice" : isSale ? "Bill of Supply" : "Purchase Bill";
   const balanceDue = r2(inv.total - inv.paid);
-
-  // The line table has to stretch so the totals block lands near the foot of
-  // the page rather than floating directly under a two-line bill. One filler
-  // row absorbs the difference; it shrinks as real lines are added and never
-  // goes below a small gap, so a long bill flows onto page two normally
-  // instead of being padded off the bottom of page one.
-  const fillerHeight = Math.max(24, 330 - inv.lineItems.length * 26);
 
   // ---- Shared cell styles ------------------------------------------------
   const cell: React.CSSProperties = {
@@ -209,7 +232,21 @@ export function PrintableTaxInvoice({
       className={className}
       style={{ fontFamily: "Arial, Helvetica, sans-serif", color: "#000", lineHeight: 1.3 }}
     >
-      <div style={{ border: BD }}>
+      {/* The bill's ruled frame, stretched to the full sheet.
+          A flex column whose ONLY growing child is the line-item table: every
+          other block (letterhead, buyer, totals, terms, signatures) is
+          content-sized, so all the slack lands in the item area and the
+          signature line always sits at the foot of the page. minHeight, not
+          height, so a bill too long for one sheet still flows onto the next
+          instead of being squashed. */}
+      <div
+        style={{
+          border: BD,
+          minHeight: pageHeight,
+          display: "flex",
+          flexDirection: "column",
+        }}
+      >
         {/* ================= Letterhead ================= */}
         <div style={{ borderBottom: BD, padding: `${s(6)}px ${s(8)}px`, textAlign: "center" }}>
           <div style={{ fontSize: s(24), fontWeight: 800, letterSpacing: s(0.5) }}>
@@ -370,7 +407,16 @@ export function PrintableTaxInvoice({
             ONE table, so the Pcs/Carat totals land exactly under their own
             columns — which is the whole reason the trade's bill rules those
             columns all the way down the page. */}
-        <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed" }}>
+        <table
+          style={{
+            width: "100%",
+            borderCollapse: "collapse",
+            tableLayout: "fixed",
+            // The one block that grows. Everything else in the frame is
+            // content-sized, so this absorbs the whole of the leftover page.
+            flex: 1,
+          }}
+        >
           {/* Column widths are sized to the WIDEST thing each column has to
               hold, which is not always a number: the last two columns also
               carry the tax summary's labels and figures ("Taxable Value",
@@ -406,7 +452,9 @@ export function PrintableTaxInvoice({
                 unbroken down it, so `borderBottom: none` here and
                 `borderTop: none` on the filler below keep it that way. */}
             {inv.lineItems.map((l, i) => {
-              const taxable = l.qty * l.price * (1 - l.discountPct / 100);
+              // Same rounded per-line figure the Taxable Value total is built
+              // from, so the Amount column adds up to it on screen.
+              const taxable = lineTaxable(l);
               const rowCell = { ...cell, borderBottom: "none", borderTop: "none" };
               return (
                 <tr key={l.id}>
@@ -422,17 +470,14 @@ export function PrintableTaxInvoice({
                 </tr>
               );
             })}
-            <tr>
+            {/* The filler row. `height: 100%` on a row of a table that is
+                taller than its content is what makes the browser hand THIS
+                row all the spare height rather than sharing it out across
+                every line, which would leave the item rows oddly tall and the
+                grid looking stretched. */}
+            <tr style={{ height: "100%" }}>
               {Array.from({ length: 7 }).map((_, c) => (
-                <td
-                  key={c}
-                  style={{
-                    ...cell,
-                    borderTop: "none",
-                    borderBottom: "none",
-                    ...(c === 0 ? { height: s(fillerHeight) } : {}),
-                  }}
-                />
+                <td key={c} style={{ ...cell, borderTop: "none", borderBottom: "none" }} />
               ))}
             </tr>
 
@@ -462,8 +507,7 @@ export function PrintableTaxInvoice({
                     live in this free-form block rather than in the ruled tax
                     column, which stays exactly as the reference has it. */}
                 <div style={{ ...small, marginBottom: s(2) }}>
-                  <span style={{ fontWeight: 700 }}>Payment:</span>{" "}
-                  {describePayment(inv, bankName)}
+                  <span style={{ fontWeight: 700 }}>Payment:</span> {describePayment(inv, bankName)}
                 </div>
                 {balanceDue > 0.005 && (
                   <div style={{ ...small, marginBottom: s(4), fontWeight: 700 }}>
@@ -478,12 +522,14 @@ export function PrintableTaxInvoice({
                 <BankBlock company={company} s={s} />
               </td>
               <td style={taxCell}>{taxRows[0].label}</td>
-              <td style={{ ...taxCell, ...num }}>{fmtNum(taxRows[0].value)}</td>
+              <td style={{ ...taxCell, ...num }}>
+                {taxRows[0].blank ? "" : fmtNum(taxRows[0].value)}
+              </td>
             </tr>
             {taxRows.slice(1).map((row) => (
               <tr key={row.label}>
                 <td style={taxCell}>{row.label}</td>
-                <td style={{ ...taxCell, ...num }}>{fmtNum(row.value)}</td>
+                <td style={{ ...taxCell, ...num }}>{row.blank ? "" : fmtNum(row.value)}</td>
               </tr>
             ))}
             <tr>
