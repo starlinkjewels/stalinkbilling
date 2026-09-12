@@ -1852,8 +1852,12 @@ async function runAll(): Promise<Results> {
         fields.length >= 2,
         `step back: the line has editable fields — found ${fields.length}`,
       );
-      const [qty, ...rest] = fields;
-      const price = rest[rest.length - 1] ?? rest[0];
+      /* Quantity by its own id, not "the first input on the row" — HSN and
+         Pcs now sit between the item name and the quantity, so first-input
+         means HSN and the assertion below would be about the wrong box. */
+      const qty = row.querySelector('[id^="qty-"]') as HTMLInputElement;
+      assert(!!qty, "step back: the line has a quantity box");
+      const price = fields[fields.length - 1];
 
       /* Enter walks ALONG the row. It used to send Quantity straight to the
          next blank item row, jumping clean over Price — the commonest
@@ -2355,9 +2359,19 @@ async function runAll(): Promise<Results> {
        satisfied by any amount that happens to contain an eight — ₹800.00
        among them — so it would pass with the quantity hard-wired to zero. */
     const footCellsList = Array.from(foot()?.querySelectorAll("td") ?? []);
+    /* Located by its HEADING, not by a hard-coded index. The grid's optional
+       columns already shift this (Unit, Disc%, Foreign Price), and adding the
+       HSN and Pcs columns the tax invoice needs moved it again — a literal
+       index just silently starts asserting about whichever column happens to
+       land there, which is exactly what it did. */
+    const headList = Array.from(foot()?.closest("table")?.querySelectorAll("thead th") ?? []);
+    const colIndex = (label: string) =>
+      headList.findIndex((h) => (h.textContent ?? "").trim().toLowerCase() === label.toLowerCase());
+    const qtyCol = colIndex("Carat");
+    assert(qtyCol >= 0, "grid total: the grid has a quantity column to add up");
     assert(
-      (footCellsList[2]?.textContent ?? "").trim() === "8",
-      `grid total: the quantity column adds up — 7 and 1 should read 8, cell says ${JSON.stringify(footCellsList[2]?.textContent)}`,
+      (footCellsList[qtyCol]?.textContent ?? "").trim() === "8",
+      `grid total: the quantity column adds up — 7 and 1 should read 8, cell says ${JSON.stringify(footCellsList[qtyCol]?.textContent)}`,
     );
 
     /* The footing must survive a column being hidden, or it slides out of
