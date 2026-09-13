@@ -19,7 +19,7 @@ import { fmtMoney, fmtDate, today, ymd } from "@/lib/format";
 import { printOrEscapeStandalone } from "@/lib/print";
 import { useAutoPrintFromUrl } from "@/hooks/useAutoPrintFromUrl";
 import { useRepoData, useRepoMemo } from "@/hooks/useRepoData";
-import { downloadElementAsPdf } from "@/lib/pdf";
+import { downloadElementAsPdf, pdfErrorMessage } from "@/lib/pdf";
 import { useShareablePdf } from "@/hooks/useShareablePdf";
 import { PaginationBar } from "@/components/Pagination";
 import { usePagination } from "@/hooks/usePagination";
@@ -425,8 +425,8 @@ function DaybookPage() {
     try {
       await downloadElementAsPdf(printRef.current, `Daybook-${date}`, "portrait");
       toast.success("Daybook downloaded as PDF");
-    } catch {
-      toast.error("Could not generate PDF — try Print instead");
+    } catch (err) {
+      toast.error(pdfErrorMessage(err, "Could not generate PDF — try Print instead"));
     } finally {
       setPdfBusy(null);
     }
@@ -437,8 +437,8 @@ function DaybookPage() {
     setPdfBusy("share");
     try {
       await share(printRef.current, `Daybook-${date}`, "portrait");
-    } catch {
-      toast.error("Could not share daybook — try Download PDF instead");
+    } catch (err) {
+      toast.error(pdfErrorMessage(err, "Could not share daybook — try Download PDF instead"));
     } finally {
       setPdfBusy(null);
     }

@@ -6,7 +6,7 @@ import { SalesRepo, PurchaseRepo, SaleReturnRepo, PurchaseReturnRepo } from "@/r
 import { useRepoData } from "@/hooks/useRepoData";
 import type { Invoice, LineItem, Return } from "@/types";
 import { fmtMoney, ymd } from "@/lib/format";
-import { downloadElementAsPdf } from "@/lib/pdf";
+import { downloadElementAsPdf, pdfErrorMessage } from "@/lib/pdf";
 import { downloadXlsx } from "@/lib/xlsx";
 import { FileText, FileDown, Sheet } from "lucide-react";
 
@@ -99,8 +99,8 @@ function GstPage() {
     try {
       await downloadElementAsPdf(printRef.current, `GST-${period}`, "portrait");
       toast.success("GST summary downloaded as PDF");
-    } catch {
-      toast.error("Could not generate PDF");
+    } catch (err) {
+      toast.error(pdfErrorMessage(err, "Could not generate PDF"));
     }
   };
 

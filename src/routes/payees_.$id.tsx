@@ -7,7 +7,7 @@ import { describePayment } from "@/lib/paymentSplit";
 import { printOrEscapeStandalone } from "@/lib/print";
 import { useAutoPrintFromUrl } from "@/hooks/useAutoPrintFromUrl";
 import { useRepoData, useRepoMemo } from "@/hooks/useRepoData";
-import { downloadElementAsPdf } from "@/lib/pdf";
+import { downloadElementAsPdf, pdfErrorMessage } from "@/lib/pdf";
 import { useShareablePdf } from "@/hooks/useShareablePdf";
 import { downloadXlsx } from "@/lib/xlsx";
 import { fmtMode } from "@/lib/paymentMode";
@@ -91,8 +91,8 @@ function PayeeLedgerPage() {
     try {
       await downloadElementAsPdf(printRef.current, pdfName(), "portrait");
       toast.success("Ledger downloaded as PDF");
-    } catch {
-      toast.error("Could not generate PDF — try Print instead");
+    } catch (err) {
+      toast.error(pdfErrorMessage(err, "Could not generate PDF — try Print instead"));
     } finally {
       setPdfBusy(null);
     }
@@ -103,8 +103,8 @@ function PayeeLedgerPage() {
     setPdfBusy("share");
     try {
       await share(printRef.current, pdfName(), "portrait");
-    } catch {
-      toast.error("Could not share ledger — try Download PDF instead");
+    } catch (err) {
+      toast.error(pdfErrorMessage(err, "Could not share ledger — try Download PDF instead"));
     } finally {
       setPdfBusy(null);
     }

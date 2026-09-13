@@ -16,7 +16,7 @@ import { printOrEscapeStandalone } from "@/lib/print";
 import { useAutoPrintFromUrl } from "@/hooks/useAutoPrintFromUrl";
 import { useRepoData, useRepoMemo } from "@/hooks/useRepoData";
 import { downloadXlsx } from "@/lib/xlsx";
-import { downloadElementAsPdf } from "@/lib/pdf";
+import { downloadElementAsPdf, pdfErrorMessage } from "@/lib/pdf";
 import { useShareablePdf } from "@/hooks/useShareablePdf";
 import { partyStatementSheet } from "@/lib/partySheet";
 import { PartyDialog } from "./parties";
@@ -158,8 +158,8 @@ function PartyStatementPage() {
     try {
       await downloadElementAsPdf(el, pdfName(), "landscape");
       toast.success("Statement downloaded as PDF");
-    } catch {
-      toast.error("Could not generate PDF — try Print instead");
+    } catch (err) {
+      toast.error(pdfErrorMessage(err, "Could not generate PDF — try Print instead"));
     } finally {
       setPdfBusy(null);
     }
@@ -171,8 +171,8 @@ function PartyStatementPage() {
     setPdfBusy("share");
     try {
       await share(el, pdfName(), "landscape");
-    } catch {
-      toast.error("Could not share statement — try Download PDF instead");
+    } catch (err) {
+      toast.error(pdfErrorMessage(err, "Could not share statement — try Download PDF instead"));
     } finally {
       setPdfBusy(null);
     }

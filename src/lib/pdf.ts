@@ -199,3 +199,20 @@ export async function elementsToPdfBlobs(
 export function downloadFile(file: File) {
   triggerDownload(file, file.name);
 }
+
+/**
+ * The toast text for a PDF that failed, WITH the reason it failed.
+ *
+ * Every PDF button used to catch the error and throw it away, showing only a
+ * fixed "Could not share — try Download PDF instead". That hid a server that
+ * was refusing every request outright (it was checking accounts against the
+ * wrong database), so the advice sent people to a Download button that failed
+ * for exactly the same reason — and nobody could tell a dropped connection
+ * from a configuration fault. The fallback text is kept; the first line of
+ * the real reason is appended, trimmed so a stack trace can't fill the toast.
+ */
+export function pdfErrorMessage(err: unknown, fallback: string): string {
+  const raw = err instanceof Error ? err.message : typeof err === "string" ? err : "";
+  const reason = raw.split("\n")[0].trim().slice(0, 160);
+  return reason ? `${fallback} (${reason})` : fallback;
+}

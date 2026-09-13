@@ -17,8 +17,11 @@ const firebaseConfig = {
   measurementId: "G-FFTQZDHDDM",
 };
 
-/** Named Firestore database (not the "(default)" one) */
-export const DATABASE_ID = "starlinkbilling";
+/* Named Firestore database — defined once in firebaseConfig.ts, because the
+   server reads the same one and the two must never disagree. Re-exported here
+   so existing imports of DATABASE_ID from this module keep working. */
+import { DATABASE_ID } from "./firebaseConfig";
+export { DATABASE_ID };
 
 export const isBrowser = typeof window !== "undefined";
 

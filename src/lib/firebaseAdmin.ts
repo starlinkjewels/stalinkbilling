@@ -9,10 +9,12 @@
  * for a given app regardless of which file asks for it.
  */
 
-/** Same named Firestore database the client SDK uses — see DATABASE_ID in
- * src/lib/firebase.ts. Must match exactly, or Admin SDK writes would land in
- * the wrong (default) database where the app never looks. */
-const DATABASE_ID = "kinteshmobileacce";
+/* The SAME named Firestore database the browser uses, imported from the one
+   shared definition rather than copied. A stale copy here pointed every
+   permission check at the previous business's database, where no Starlink
+   user exists — which is why PDF share/download and Team management were
+   refused. See firebaseConfig.ts. */
+import { DATABASE_ID } from "./firebaseConfig";
 
 let appPromise: Promise<import("firebase-admin").app.App> | null = null;
 

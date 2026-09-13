@@ -2114,6 +2114,40 @@ console.log(`\n═════════════════════�
   assert(approx(a.avgCost, 300), "AVCO: movements are replayed in date order");
 }
 
+/* ══ ONE database, named once ══════════════════════════════════════════
+   The browser and the server each kept their own copy of the Firestore
+   database name. When the app was set up for Starlink Jewels only the browser
+   copy was changed, so every server-side permission check looked the signed-in
+   user up in the PREVIOUS business's database, found nobody, and refused —
+   Share PDF, Download PDF and Team management all failed with a toast that
+   named none of it. Both now import the one constant; this pins it there. */
+{
+  const cfg = readFileSync(process.cwd() + "/src/lib/firebaseConfig.ts", "utf8");
+  const client = readFileSync(process.cwd() + "/src/lib/firebase.ts", "utf8");
+  const server = readFileSync(process.cwd() + "/src/lib/firebaseAdmin.ts", "utf8");
+  // Plain substring checks, no regex: a copied literal is the fault being
+  // guarded against, and that is exactly what `DATABASE_ID = "` finds.
+  const LITERAL = 'DATABASE_ID = "';
+  const SHARED = 'from "./firebaseConfig"';
+
+  assert(
+    cfg.includes('export const DATABASE_ID = "starlinkbilling";'),
+    "DB: the database is named exactly once, as the Starlink database",
+  );
+  assert(
+    client.includes(SHARED) && !client.includes(LITERAL),
+    "DB: the browser takes it from the shared definition rather than a copy",
+  );
+  assert(
+    server.includes(SHARED) && !server.includes(LITERAL),
+    "DB: and so does the server, which is the copy that went stale",
+  );
+  assert(
+    server.includes("settings({ databaseId: DATABASE_ID"),
+    "DB: and the server actually points the Admin SDK at it",
+  );
+}
+
 console.log(`  AUDIT RESULT: ${passed} assertions passed, ${failed} failed`);
 if (fails.length) {
   console.log(`\nFailures:`);

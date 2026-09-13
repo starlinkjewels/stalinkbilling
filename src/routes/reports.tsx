@@ -27,7 +27,7 @@ import {
 } from "@/lib/ledger";
 import { downloadCsv } from "@/lib/csv";
 import { downloadXlsx } from "@/lib/xlsx";
-import { downloadElementAsPdf } from "@/lib/pdf";
+import { downloadElementAsPdf, pdfErrorMessage } from "@/lib/pdf";
 import { useShareablePdf } from "@/hooks/useShareablePdf";
 import { partyStatementSheet } from "@/lib/partySheet";
 import { PartyStatementRowBlock, PartyStatementCardBlock } from "./parties_.$id";
@@ -144,8 +144,8 @@ function ReportsPage() {
     try {
       await downloadElementAsPdf(printRef.current, reportFilename(), "landscape");
       toast.success("Report downloaded as PDF");
-    } catch {
-      toast.error("Could not generate PDF — try Print instead");
+    } catch (err) {
+      toast.error(pdfErrorMessage(err, "Could not generate PDF — try Print instead"));
     } finally {
       setPdfBusy(null);
     }
@@ -156,8 +156,8 @@ function ReportsPage() {
     setPdfBusy("share");
     try {
       await share(printRef.current, reportFilename(), "landscape");
-    } catch {
-      toast.error("Could not share report — try Download PDF instead");
+    } catch (err) {
+      toast.error(pdfErrorMessage(err, "Could not share report — try Download PDF instead"));
     } finally {
       setPdfBusy(null);
     }

@@ -6,7 +6,7 @@ import type { Invoice, Company } from "@/types";
 import { fmtMoney } from "@/lib/format";
 import { describePayment } from "@/lib/paymentSplit";
 import { printWithName, printOrEscapeStandalone, isStandalone } from "@/lib/print";
-import { downloadElementAsPdf } from "@/lib/pdf";
+import { downloadElementAsPdf, pdfErrorMessage } from "@/lib/pdf";
 import { useShareablePdf } from "@/hooks/useShareablePdf";
 import { useFitScale } from "@/hooks/useFitScale";
 import { fmtMode } from "@/lib/paymentMode";
@@ -88,8 +88,8 @@ function BillDetailPage() {
     try {
       await downloadElementAsPdf(printRef.current, inv.number, "portrait");
       toast.success("Bill downloaded as PDF");
-    } catch {
-      toast.error("Could not generate PDF — try Print instead");
+    } catch (err) {
+      toast.error(pdfErrorMessage(err, "Could not generate PDF — try Print instead"));
     } finally {
       setPdfBusy(null);
     }
@@ -100,8 +100,8 @@ function BillDetailPage() {
     setPdfBusy("share");
     try {
       await share(printRef.current, inv.number, "portrait");
-    } catch {
-      toast.error("Could not share bill — try Download PDF instead");
+    } catch (err) {
+      toast.error(pdfErrorMessage(err, "Could not share bill — try Download PDF instead"));
     } finally {
       setPdfBusy(null);
     }

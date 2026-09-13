@@ -504,7 +504,6 @@ export function PrintableTaxInvoice({
                     on the statement and the ledger, both of which still hold
                     it in full. Nothing about how payment is RECORDED changed;
                     the thermal receipt still prints it. */}
-                <div style={{ ...small, marginBottom: s(4) }}>Net Rate:</div>
                 {inv.notes && (
                   <div style={{ ...small, marginBottom: s(4) }}>
                     <span style={{ fontWeight: 700 }}>Remark:</span> {inv.notes}

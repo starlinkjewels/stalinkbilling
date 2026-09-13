@@ -6,7 +6,7 @@ import type { Invoice, Company, PrintFormat } from "@/types";
 import { fmtMoney } from "@/lib/format";
 import { describePayment } from "@/lib/paymentSplit";
 import { printWithName, printOrEscapeStandalone, isStandalone } from "@/lib/print";
-import { downloadElementAsPdf } from "@/lib/pdf";
+import { downloadElementAsPdf, pdfErrorMessage } from "@/lib/pdf";
 import { useShareablePdf } from "@/hooks/useShareablePdf";
 import { useFitScale } from "@/hooks/useFitScale";
 import { fmtMode } from "@/lib/paymentMode";
@@ -118,8 +118,8 @@ function InvoiceDetailPage() {
         thermalWidthMm,
       );
       toast.success("Invoice downloaded as PDF");
-    } catch {
-      toast.error("Could not generate PDF — try Print instead");
+    } catch (err) {
+      toast.error(pdfErrorMessage(err, "Could not generate PDF — try Print instead"));
     } finally {
       setPdfBusy(null);
     }
@@ -135,8 +135,8 @@ function InvoiceDetailPage() {
         fmt === "a4-2up" ? "landscape" : "portrait",
         thermalWidthMm,
       );
-    } catch {
-      toast.error("Could not share invoice — try Download PDF instead");
+    } catch (err) {
+      toast.error(pdfErrorMessage(err, "Could not share invoice — try Download PDF instead"));
     } finally {
       setPdfBusy(null);
     }

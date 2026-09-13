@@ -16,7 +16,7 @@ import { printOrEscapeStandalone } from "@/lib/print";
 import { useAutoPrintFromUrl } from "@/hooks/useAutoPrintFromUrl";
 import { useRepoData, useRepoMemo } from "@/hooks/useRepoData";
 import { downloadCsv } from "@/lib/csv";
-import { downloadElementAsPdf } from "@/lib/pdf";
+import { downloadElementAsPdf, pdfErrorMessage } from "@/lib/pdf";
 import type { BankAccount } from "@/types";
 import {
   ArrowLeft,
@@ -158,8 +158,8 @@ function BankStatementPage() {
         "portrait",
       );
       toast.success("Passbook downloaded as PDF");
-    } catch {
-      toast.error("Could not generate PDF — try again once online");
+    } catch (err) {
+      toast.error(pdfErrorMessage(err, "Could not generate PDF — try again once online"));
     } finally {
       setPdfBusy(false);
     }

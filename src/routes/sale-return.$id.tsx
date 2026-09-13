@@ -5,7 +5,7 @@ import { SaleReturnRepo, CompanyRepo } from "@/repositories";
 import type { Return, Company } from "@/types";
 import { fmtMoney } from "@/lib/format";
 import { printOrEscapeStandalone } from "@/lib/print";
-import { downloadElementAsPdf } from "@/lib/pdf";
+import { downloadElementAsPdf, pdfErrorMessage } from "@/lib/pdf";
 import { PrintableReturn } from "@/components/PrintableReturn";
 import { useRepoData } from "@/hooks/useRepoData";
 import { toast } from "sonner";
@@ -36,8 +36,8 @@ function SaleReturnDetailPage() {
     try {
       await downloadElementAsPdf(printRef.current, ret.number, "portrait");
       toast.success("Credit note downloaded as PDF");
-    } catch {
-      toast.error("Could not generate PDF — try again once online");
+    } catch (err) {
+      toast.error(pdfErrorMessage(err, "Could not generate PDF — try again once online"));
     } finally {
       setPdfBusy(false);
     }
