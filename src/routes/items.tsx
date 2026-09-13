@@ -14,6 +14,7 @@ import {
   PurchaseReturnRepo,
 } from "@/repositories";
 import { useRepoData, useRepoMemo } from "@/hooks/useRepoData";
+import { buildAverageCosts } from "@/lib/avgCost";
 import { useStickyState } from "@/hooks/useStickySearch";
 import { BulkUpdateItemsDialog } from "@/components/BulkUpdateItemsDialog";
 import { newBatch, commitBatch } from "@/repositories/base";
@@ -23,7 +24,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Field } from "@/components/Field";
 import { ComboInput } from "@/components/ComboInput";
 import { NumField } from "@/components/NumInput";
-import { fmtMoney, today } from "@/lib/format";
+import { fmtMoney, today, fmtQty } from "@/lib/format";
 import { downloadCsv } from "@/lib/csv";
 import { parseImportFile, normalizeHeader } from "@/lib/sheetImport";
 import {
@@ -93,6 +94,24 @@ function ItemsPage() {
   const refresh = () => setRows(ItemRepo.all());
   const _repoV = useRepoData();
   useEffect(refresh, [_repoV]);
+
+  /* Break-even cost per item — what the remaining stock actually cost, so a
+     rate typed on a bill can be judged against it. Built ONCE for every item
+     here rather than per row: it replays the whole document history, and
+     doing that inside a cell renderer would re-scan every invoice for every
+     row on every keystroke of the search box. */
+  const avgCosts = useRepoMemo(
+    () =>
+      buildAverageCosts({
+        items: ItemRepo.all(),
+        purchases: PurchaseRepo.all(),
+        sales: SalesRepo.all(),
+        saleReturns: SaleReturnRepo.all(),
+        purchaseReturns: PurchaseReturnRepo.all(),
+        adjustments: StockAdjustmentRepo.all(),
+      }),
+    [],
+  );
 
   useEffect(() => {
     const h = (e: KeyboardEvent) => {
@@ -171,6 +190,35 @@ function ItemsPage() {
       render: (r) => fmtMoney(r.purchasePrice),
     },
     {
+      key: "avgcost",
+      label: "Avg Cost",
+      width: "130px",
+      align: "right",
+      render: (r) => {
+        const ac = avgCosts.get(r.id);
+        if (!ac) return "—";
+        /* Amber when the sale price is at or under the break-even: that is a
+           line that loses money every time it goes out, and it should be
+           visible from the list without opening the item. */
+        const losing = r.salePrice > 0 && r.salePrice <= ac.avgCost;
+        return (
+          <span
+            className={losing ? "text-warning font-semibold" : ""}
+            title={
+              ac.derived
+                ? `Weighted average cost of the ${fmtQty(ac.onHand)} ${r.unit} still in stock` +
+                  (losing ? " — the sale price is at or below it" : "")
+                : "No purchase history yet — showing the catalogue purchase price"
+            }
+          >
+            {fmtMoney(ac.avgCost)}
+            {!ac.derived && <span className="text-gray-300"> *</span>}
+          </span>
+        );
+      },
+      sortValue: (r) => avgCosts.get(r.id)?.avgCost ?? 0,
+    },
+    {
       key: "sale",
       label: "Sale Price",
       width: "130px",
@@ -189,7 +237,7 @@ function ItemsPage() {
         const low = (r.minStock != null && r.stock <= r.minStock) || r.stock < 0;
         return (
           <span className={low ? "text-warning font-medium" : ""}>
-            {r.stock} {r.unit}
+            {fmtQty(r.stock)} {r.unit}
           </span>
         );
       },
@@ -357,7 +405,7 @@ function ItemsPage() {
                     <span
                       className={`text-xs font-semibold ${low ? "text-warning" : "text-gray-500"}`}
                     >
-                      {r.stock} {r.unit} in stock
+                      {fmtQty(r.stock)} {r.unit} in stock
                     </span>
                     <div className="flex items-center gap-1">
                       <button
@@ -487,7 +535,7 @@ export function StockAdjustDialog({
     });
     commitBatch(batch, "stock adjustment");
     toast.success(
-      `${item.name}: stock ${type === "add" ? "increased" : "reduced"} by ${n} → now ${newStock} ${item.unit}`,
+      `${item.name}: stock ${type === "add" ? "increased" : "reduced"} by ${n} → now ${fmtQty(newStock)} ${item.unit}`,
     );
     onSaved();
     onOpenChange(false);
@@ -503,7 +551,7 @@ export function StockAdjustDialog({
           <p className="text-sm text-muted-foreground">
             Current stock:{" "}
             <span className="font-bold text-foreground">
-              {item.stock} {item.unit}
+              {fmtQty(item.stock)} {item.unit}
             </span>
           </p>
           <div className="flex gap-2">
@@ -541,7 +589,7 @@ export function StockAdjustDialog({
             <p className="text-sm">
               New stock will be:{" "}
               <span className={`font-bold ${newStock < 0 ? "text-destructive" : "text-success"}`}>
-                {newStock} {item.unit}
+                {fmtQty(newStock)} {item.unit}
               </span>
             </p>
           )}
@@ -702,7 +750,7 @@ export function ItemDialog({
                   <div key={x.id} className="px-3 py-2 text-sm flex items-center justify-between">
                     <span className="font-medium">{x.name}</span>
                     <span className="text-[11px] text-muted-foreground">
-                      Stock: {x.stock} {x.unit}
+                      Stock: {fmtQty(x.stock)} {x.unit}
                     </span>
                   </div>
                 ))}

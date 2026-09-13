@@ -41,3 +41,19 @@ export const ymd = (d: Date) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 
 export const today = () => ymd(new Date());
+
+/**
+ * A quantity for display — always two decimals.
+ *
+ * This business bills in carats, where the second decimal is a real part of
+ * the number: a stone shown as "7" when it is 7.05 misstates the weight, and
+ * a stock figure that reads "12" on one screen and "12.5" on the next reads
+ * as two different numbers rather than one rounded differently. Two decimals
+ * everywhere makes every quantity in the app line up, column to column and
+ * screen to printed bill (see fmtNum in lib/gst.ts, which the invoice uses
+ * for exactly the same reason).
+ *
+ * Display ONLY — never round a stored quantity through this.
+ */
+export const fmtQty = (n: number) =>
+  (n || 0).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });

@@ -14,7 +14,7 @@ import {
   PurchaseRepo,
 } from "@/repositories";
 import type { Return, LineItem, Party, Item, Invoice } from "@/types";
-import { fmtMoney, today } from "@/lib/format";
+import { fmtMoney, today, fmtQty } from "@/lib/format";
 import { toast } from "sonner";
 import { Trash2, UserPlus, Save, X, CornerDownLeft, CornerUpLeft, Loader2 } from "lucide-react";
 import { genId, newBatch, commitBatch } from "@/repositories/base";
@@ -918,7 +918,7 @@ function ReturnItemSearchRow({
                   <div>
                     <div className="font-semibold">{it.name}</div>
                     <div className="text-[11px] text-muted-foreground">
-                      Stock: {it.stock} {it.unit}
+                      Stock: {fmtQty(it.stock)} {it.unit}
                     </div>
                   </div>
                 </div>

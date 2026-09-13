@@ -22,8 +22,6 @@ import {
 } from "@/repositories";
 import type { Party } from "@/types";
 
-const monthStart = () => ymd(new Date(new Date().getFullYear(), new Date().getMonth(), 1));
-
 /** Browsers throttle — and Chrome outright blocks — a burst of automatic
  * downloads from one gesture. A short gap between files keeps a 20-party
  * export from silently losing most of its files. */

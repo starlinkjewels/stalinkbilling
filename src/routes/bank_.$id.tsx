@@ -44,6 +44,12 @@ function BankStatementPage() {
   const navigate = useNavigate();
   const goBack = useGoBack("/bank");
   const [bank, setBank] = useState<BankAccount | null | undefined>(undefined);
+  /* Every date range in this app opens on ALL TIME — both boxes empty.
+     A range that quietly defaulted to a period showed a filtered view that
+     looked like the whole book: totals that didn't match the ledger, rows
+     that appeared to be missing, and nothing on screen saying why. Blank
+     means unbounded everywhere (see inRange), so what you see on opening is
+     everything there is; narrowing is then a deliberate act. */
   const [dateFrom, setDateFrom] = useState(() => dateCache?.dateFrom ?? "");
   const [dateTo, setDateTo] = useState(() => dateCache?.dateTo ?? "");
   const [pdfBusy, setPdfBusy] = useState(false);

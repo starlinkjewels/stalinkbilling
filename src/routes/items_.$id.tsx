@@ -9,12 +9,13 @@ import {
   PurchaseReturnRepo,
   StockAdjustmentRepo,
 } from "@/repositories";
-import { fmtDate, fmtDateShort, fmtMoney } from "@/lib/format";
+import { fmtDate, fmtDateShort, fmtMoney, fmtQty } from "@/lib/format";
 import { PaginationBar } from "@/components/Pagination";
 import { usePagination } from "@/hooks/usePagination";
 import { ItemDialog, StockAdjustDialog } from "./items";
 import { usePermissions } from "@/hooks/usePermissions";
 import { useRepoData, useRepoMemo } from "@/hooks/useRepoData";
+import { buildAverageCosts } from "@/lib/avgCost";
 import type { Item, Invoice, Return } from "@/types";
 import {
   ArrowLeft,
@@ -128,6 +129,22 @@ function ItemDetailPage() {
     return { rows: entries, soldQty, boughtQty, profit };
   }, [item, id, refreshKey]);
 
+  /* What the stock still on the shelf actually cost — the floor price. See
+     lib/avgCost.ts: purchases go into a pool, sales come out of it, and only
+     inward movement ever changes the average. */
+  const avgCost = useRepoMemo(
+    () =>
+      buildAverageCosts({
+        items: ItemRepo.all(),
+        purchases: PurchaseRepo.all(),
+        sales: SalesRepo.all(),
+        saleReturns: SaleReturnRepo.all(),
+        purchaseReturns: PurchaseReturnRepo.all(),
+        adjustments: StockAdjustmentRepo.all(),
+      }).get(id),
+    [id],
+  );
+
   const pg = usePagination(rows, "item-history");
 
   const openRow = (e: HistoryRow) => {
@@ -199,16 +216,37 @@ function ItemDetailPage() {
       </div>
 
       {/* Summary — desktop: one row across all 6, plenty of width to spare */}
-      <div className="hidden lg:grid grid-cols-6 bg-white border-b">
+      <div className="hidden lg:grid grid-cols-7 bg-white border-b">
         <Stat
           label="Current Stock"
-          value={`${item.stock} ${item.unit}`}
+          value={`${fmtQty(item.stock)} ${item.unit}`}
           color={item.stock < 0 ? "text-rose-600" : "text-gray-800"}
         />
         <Stat label="Stock Value" value={fmtMoney(r2(item.stock * item.purchasePrice))} />
         <Stat label="Purchase Price" value={fmtMoney(item.purchasePrice)} />
-        <Stat label="Sale Price" value={fmtMoney(item.salePrice)} />
-        <Stat label="Total Sold" value={`${soldQty} ${item.unit}`} />
+        {/* The break-even rate. Distinct from Purchase Price above, which is
+            only the latest/catalogue figure — this is the weighted average of
+            the stock actually on hand, so it is what a sale rate has to clear
+            to make money. */}
+        <Stat
+          label="Avg Cost (Break-even)"
+          value={avgCost ? fmtMoney(avgCost.avgCost) : "—"}
+          hint={
+            avgCost?.derived === false
+              ? "No purchases yet — catalogue price"
+              : "Selling below this loses money"
+          }
+        />
+        <Stat
+          label="Sale Price"
+          value={fmtMoney(item.salePrice)}
+          color={
+            avgCost && item.salePrice > 0 && item.salePrice <= avgCost.avgCost
+              ? "text-warning"
+              : "text-gray-800"
+          }
+        />
+        <Stat label="Total Sold" value={`${fmtQty(soldQty)} ${item.unit}`} />
         <Stat
           label="Profit Earned"
           value={fmtMoney(profit)}
@@ -226,7 +264,7 @@ function ItemDetailPage() {
         <div className="flex gap-2.5 overflow-x-auto px-4 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           <MobileStatCard
             label="Current Stock"
-            value={`${item.stock} ${item.unit}`}
+            value={`${fmtQty(item.stock)} ${item.unit}`}
             color={item.stock < 0 ? "text-rose-600" : "text-gray-800"}
           />
           <MobileStatCard
@@ -234,8 +272,20 @@ function ItemDetailPage() {
             value={fmtMoney(r2(item.stock * item.purchasePrice))}
           />
           <MobileStatCard label="Purchase Price" value={fmtMoney(item.purchasePrice)} />
-          <MobileStatCard label="Sale Price" value={fmtMoney(item.salePrice)} />
-          <MobileStatCard label="Total Sold" value={`${soldQty} ${item.unit}`} />
+          <MobileStatCard
+            label="Avg Cost (Break-even)"
+            value={avgCost ? fmtMoney(avgCost.avgCost) : "—"}
+          />
+          <MobileStatCard
+            label="Sale Price"
+            value={fmtMoney(item.salePrice)}
+            color={
+              avgCost && item.salePrice > 0 && item.salePrice <= avgCost.avgCost
+                ? "text-warning"
+                : "text-gray-800"
+            }
+          />
+          <MobileStatCard label="Total Sold" value={`${fmtQty(soldQty)} ${item.unit}`} />
           <MobileStatCard
             label="Profit Earned"
             value={fmtMoney(profit)}
@@ -291,7 +341,7 @@ function ItemDetailPage() {
                         <p
                           className={`font-bold tabular-nums text-[13px] leading-tight ${isIn ? "text-emerald-600" : "text-rose-600"}`}
                         >
-                          {isIn ? `+${e.qtyIn}` : `−${e.qtyOut}`} {item.unit}
+                          {isIn ? `+${fmtQty(e.qtyIn)}` : `−${fmtQty(e.qtyOut)}`} {item.unit}
                         </p>
                         {e.ref && (
                           <p className="font-mono text-[10px] text-blue-500 mt-0.5">{e.ref}</p>
@@ -351,10 +401,10 @@ function ItemDetailPage() {
                       {e.rate != null ? fmtMoney(e.rate) : "—"}
                     </td>
                     <td className="px-4 py-2.5 text-right tabular-nums text-emerald-600 font-semibold">
-                      {e.qtyIn ? `+${e.qtyIn}` : "—"}
+                      {e.qtyIn ? `+${fmtQty(e.qtyIn)}` : "—"}
                     </td>
                     <td className="px-4 py-2.5 text-right tabular-nums text-rose-600 font-semibold">
-                      {e.qtyOut ? `−${e.qtyOut}` : "—"}
+                      {e.qtyOut ? `−${fmtQty(e.qtyOut)}` : "—"}
                     </td>
                   </tr>
                 ))
@@ -394,11 +444,15 @@ function Stat({
   value,
   color = "text-gray-800",
   icon,
+  hint,
 }: {
   label: string;
   value: string;
   color?: string;
   icon?: boolean;
+  /** One line under the figure, for a stat whose meaning isn't obvious from
+   * its label alone (what "break-even" is actually telling you). */
+  hint?: string;
 }) {
   return (
     <div className="px-4 py-3 border-r border-gray-100 last:border-r-0">
@@ -407,6 +461,7 @@ function Stat({
         {label}
       </p>
       <p className={`text-[15px] font-bold tabular-nums ${color}`}>{value}</p>
+      {hint && <p className="text-[10px] text-gray-400 mt-0.5 leading-tight">{hint}</p>}
     </div>
   );
 }

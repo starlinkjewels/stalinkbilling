@@ -16,7 +16,7 @@ import {
 import { useRepoData } from "@/hooks/useRepoData";
 import { useStickyState } from "@/hooks/useStickySearch";
 import type { Item } from "@/types";
-import { fmtMoney } from "@/lib/format";
+import { fmtMoney, fmtQty } from "@/lib/format";
 import { Boxes, Package, Search } from "lucide-react";
 
 export const Route = createFileRoute("/inventory")({ component: InventoryPage });
@@ -108,7 +108,7 @@ function InventoryPage() {
         const low = (r.minStock != null && r.stock <= r.minStock) || r.stock < 0;
         return (
           <span className={low ? "text-warning font-medium" : ""}>
-            {r.stock} {r.unit}
+            {fmtQty(r.stock)} {r.unit}
           </span>
         );
       },
@@ -189,7 +189,7 @@ function InventoryPage() {
                     <p
                       className={`font-bold tabular-nums shrink-0 ${low ? "text-warning" : "text-gray-800"}`}
                     >
-                      {r.stock} {r.unit}
+                      {fmtQty(r.stock)} {r.unit}
                     </p>
                   </div>
                   <div className="flex items-center gap-3 text-xs text-gray-500">

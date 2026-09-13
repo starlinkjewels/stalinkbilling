@@ -38,6 +38,7 @@ import type {
 } from "@/types";
 import { Repository } from "@/repositories/base";
 import { correctBankPaidAmount, planBankRepair } from "@/lib/bankRepair";
+import { buildAverageCosts } from "@/lib/avgCost";
 import { planStockRepair } from "@/lib/dataRepair";
 import {
   splitsOf,
@@ -2379,6 +2380,162 @@ console.log(`\n═════════════════════�
     /lastError/.test(ui),
     "Z3: and whatever went wrong is put on the screen rather than kept in a variable",
   );
+}
+
+/* ══ AVCO — the break-even price of the stock still on the shelf ══════════
+   The figure the client sells against: buy into a pool, sell out of it, and
+   the average of what remains is the least a line can go out at without
+   losing money. Only INWARD movement may ever change it.
+   See src/lib/avgCost.ts. */
+{
+  const AI = (over: Partial<Item> = {}): Item =>
+    ({
+      id: "AC1",
+      name: "Stone",
+      unit: "ct",
+      gstRate: 1.5,
+      purchasePrice: 0,
+      salePrice: 0,
+      stock: 0,
+      openingStock: 0,
+      createdAt: "2026-01-01T00:00:00Z",
+      ...over,
+    }) as Item;
+  const AD = (date: string, lines: Partial<LineItem>[], id: string): Invoice =>
+    ({
+      id,
+      number: id,
+      date,
+      partyId: "P",
+      partyName: "P",
+      lineItems: lines.map((l, i) => ({
+        id: id + i,
+        itemId: "AC1",
+        name: "Stone",
+        unit: "ct",
+        discountPct: 0,
+        gstRate: 0,
+        amount: 0,
+        qty: 0,
+        price: 0,
+        ...l,
+      })),
+      subtotal: 0,
+      discount: 0,
+      taxAmount: 0,
+      total: 0,
+      paid: 0,
+      paymentMode: "credit",
+      createdAt: date + "T00:00:00Z",
+    }) as Invoice;
+  const avc = (o: {
+    items?: Item[];
+    purchases?: Invoice[];
+    sales?: Invoice[];
+    saleReturns?: Invoice[];
+    purchaseReturns?: Invoice[];
+    adjustments?: StockAdjustment[];
+  }) =>
+    buildAverageCosts({
+      items: o.items ?? [AI()],
+      purchases: o.purchases ?? [],
+      sales: o.sales ?? [],
+      saleReturns: (o.saleReturns ?? []) as unknown as Return[],
+      purchaseReturns: (o.purchaseReturns ?? []) as unknown as Return[],
+      adjustments: o.adjustments ?? [],
+    }).get("AC1")!;
+
+  // Weighted across two lots, then a sale, then a third lot.
+  let a = avc({
+    purchases: [
+      AD("2026-01-01", [{ qty: 10, price: 100 }], "b1"),
+      AD("2026-01-02", [{ qty: 10, price: 120 }], "b2"),
+      AD("2026-01-04", [{ qty: 5, price: 140 }], "b4"),
+    ],
+    sales: [AD("2026-01-03", [{ qty: 5, price: 500 }], "s3")],
+  });
+  assert(approx(a.onHand, 20), "AVCO: quantity on hand follows every movement");
+  assert(approx(a.avgCost, 117.5), "AVCO: (15x110 + 5x140)/20 = 117.50");
+  assert(approx(a.value, 2350), "AVCO: stock value is onHand x average");
+
+  // Selling out must RESET the average — not blend the sold-out lot into the new one.
+  a = avc({
+    purchases: [
+      AD("2026-01-01", [{ qty: 10, price: 100 }], "b1"),
+      AD("2026-01-03", [{ qty: 10, price: 60 }], "b3"),
+    ],
+    sales: [AD("2026-01-02", [{ qty: 10, price: 500 }], "s2")],
+  });
+  assert(approx(a.avgCost, 60), "AVCO: restocking after selling out takes the new rate");
+
+  // A sale, at any margin, must never move the average.
+  a = avc({
+    purchases: [AD("2026-01-01", [{ qty: 10, price: 100 }], "b1")],
+    sales: [AD("2026-01-02", [{ qty: 9, price: 99999 }], "s2")],
+  });
+  assert(approx(a.avgCost, 100), "AVCO: selling never changes what the rest of the stock cost");
+
+  // Goods back from a customer re-enter at COST, never at the sale price.
+  a = avc({
+    purchases: [AD("2026-01-01", [{ qty: 10, price: 100 }], "b1")],
+    sales: [AD("2026-01-02", [{ qty: 5, price: 900, costPrice: 100 }], "s2")],
+    saleReturns: [AD("2026-01-03", [{ qty: 5, price: 900, costPrice: 100 }], "r3")],
+  });
+  assert(
+    approx(a.avgCost, 100),
+    "AVCO: a sale return credits stock at cost, not at the sale price",
+  );
+  assert(approx(a.onHand, 10), "AVCO: and puts the quantity back");
+
+  // Opening stock, with nothing traded, falls back to the catalogue cost.
+  a = avc({ items: [AI({ openingStock: 4, purchasePrice: 250 })] });
+  assert(approx(a.avgCost, 250), "AVCO: opening stock is seeded at the purchase price");
+  assert(!a.derived, "AVCO: and is flagged as not derived from real purchases");
+
+  // A line discount is part of what was really paid.
+  a = avc({ purchases: [AD("2026-01-01", [{ qty: 10, price: 100, discountPct: 10 }], "b1")] });
+  assert(approx(a.avgCost, 90), "AVCO: a purchase line discount lowers the average");
+
+  // Carats, which is what this business actually weighs in.
+  a = avc({
+    purchases: [
+      AD("2026-01-01", [{ qty: 7.05, price: 9029.53 }], "b1"),
+      AD("2026-01-03", [{ qty: 3, price: 9500 }], "b3"),
+    ],
+    sales: [AD("2026-01-02", [{ qty: 2.05, price: 12000 }], "s2")],
+  });
+  assert(approx(a.avgCost, (5 * 9029.53 + 3 * 9500) / 8, 0.01), "AVCO: weights fractional carats");
+
+  // Oversold, then restocked — must not divide through a zero holding.
+  a = avc({
+    purchases: [
+      AD("2026-01-01", [{ qty: 5, price: 100 }], "b1"),
+      AD("2026-01-03", [{ qty: 10, price: 200 }], "b3"),
+    ],
+    sales: [AD("2026-01-02", [{ qty: 8, price: 500 }], "s2")],
+  });
+  assert(Number.isFinite(a.avgCost), "AVCO: restocking from a negative balance stays finite");
+  assert(approx(a.avgCost, 200), "AVCO: and takes the incoming rate");
+
+  // A supplier return takes stock out without moving the average.
+  a = avc({
+    purchases: [
+      AD("2026-01-01", [{ qty: 10, price: 100 }], "b1"),
+      AD("2026-01-02", [{ qty: 10, price: 200 }], "b2"),
+    ],
+    purchaseReturns: [AD("2026-01-03", [{ qty: 5, price: 200 }], "pr3")],
+  });
+  assert(approx(a.avgCost, 150), "AVCO: a purchase return removes stock without repricing it");
+
+  // Order is by business DATE, not the order documents happen to arrive in.
+  a = avc({
+    purchases: [
+      AD("2026-03-01", [{ qty: 10, price: 300 }], "late"),
+      AD("2026-01-01", [{ qty: 10, price: 100 }], "early"),
+    ],
+    sales: [AD("2026-02-01", [{ qty: 10, price: 999 }], "mid")],
+  });
+  assert(approx(a.avgCost, 300), "AVCO: movements are replayed in date order");
 }
 
 console.log(`  AUDIT RESULT: ${passed} assertions passed, ${failed} failed`);

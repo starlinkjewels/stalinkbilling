@@ -35,7 +35,7 @@ import type {
   BankAccount,
   PaymentSplit,
 } from "@/types";
-import { fmtMoney, fmtDate, today } from "@/lib/format";
+import { fmtMoney, fmtDate, today, fmtQty } from "@/lib/format";
 import { isInterState, placeLabel, stateCodeOfGstin } from "@/lib/gst";
 import { toast } from "sonner";
 import { bankParts, splitProblems, largestSplitMode } from "@/lib/paymentSplit";
@@ -1726,7 +1726,7 @@ export function InvoiceForm({ mode, existing }: Props) {
                     </td>
                     <td />
                     <td className="text-right py-2 px-2 tabular-nums">{totalPcs || ""}</td>
-                    <td className="text-right py-2 px-2 tabular-nums">{totalQty}</td>
+                    <td className="text-right py-2 px-2 tabular-nums">{fmtQty(totalQty)}</td>
                     {showUnitCol && <td />}
                     {inv.isInternational && <td />}
                     <td className="text-right py-2 px-2 tabular-nums text-muted-foreground">
@@ -2255,7 +2255,7 @@ function ItemEntryRow({
                     <div>
                       <div className="font-semibold">{it.name}</div>
                       <div className="text-[11px] text-muted-foreground">
-                        Stock: {it.stock} {it.unit}
+                        Stock: {fmtQty(it.stock)} {it.unit}
                       </div>
                     </div>
                     <div className="text-right">
@@ -2561,7 +2561,7 @@ function ItemNameCell({
                   <div>
                     <div className="font-semibold">{it.name}</div>
                     <div className="text-[11px] text-muted-foreground">
-                      Stock: {it.stock} {it.unit}
+                      Stock: {fmtQty(it.stock)} {it.unit}
                     </div>
                   </div>
                   <div className="text-right">
@@ -2821,7 +2821,7 @@ function QuickAddItemDialog({
                   >
                     <span className="font-medium">{it.name}</span>
                     <span className="text-[11px] text-muted-foreground">
-                      Stock: {it.stock} {it.unit}
+                      Stock: {fmtQty(it.stock)} {it.unit}
                     </span>
                   </div>
                 ))}

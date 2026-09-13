@@ -23,7 +23,7 @@ import type {
   Payment,
   CashAdjustment,
 } from "@/types";
-import { fmtMoney, ymd } from "@/lib/format";
+import { fmtMoney, ymd, fmtQty } from "@/lib/format";
 import {
   netPartyPositions,
   cashFlows,
@@ -105,8 +105,17 @@ function buildChartData(sales: Invoice[], start: string, end: string) {
   return days;
 }
 
+/** Dashboard money, always to the paisa.
+ *
+ * Was maximumFractionDigits: 0, which silently dropped the decimals from
+ * every headline figure — a receivable of 22,251.40 read as 22,251 here and
+ * as 22,251.40 on the party statement, and the two looked like a discrepancy
+ * rather than the same number shown twice. */
 function fmt(n: number) {
-  return new Intl.NumberFormat("en-IN", { maximumFractionDigits: 0 }).format(n);
+  return new Intl.NumberFormat("en-IN", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(n || 0);
 }
 
 function Dashboard() {
@@ -212,6 +221,31 @@ function Dashboard() {
   const payableParties = supplierBalances.length;
 
   const stockValue = data.items.reduce((a, i) => a + (i.stock || 0) * (i.purchasePrice || 0), 0);
+  /* Item-wise stock, biggest holding first — the panel below leads with the
+     total and then shows where that money actually is. Valued at purchase
+     price, the SAME basis the Stock Value stat, the Inventory page and the
+     stock report already use, so the dashboard can't disagree with them.
+     Items sitting at zero are left out: a list of nothings buries the rows
+     that matter. */
+  const stockRows = useMemo(
+    () =>
+      data.items
+        .filter((i) => (i.stock || 0) !== 0)
+        .map((i) => ({
+          id: i.id,
+          name: i.name,
+          unit: i.unit,
+          stock: i.stock || 0,
+          value: r2((i.stock || 0) * (i.purchasePrice || 0)),
+        }))
+        .sort((a, b) => b.value - a.value),
+    [data.items],
+  );
+  const topStock = stockRows.slice(0, 6);
+  /* Magnitude is carried by bar LENGTH against the biggest holding, not by a
+     different colour per row — one hue, more-is-longer (sequential). Guarded
+     against a zero/negative max so a bill-less shop can't divide by zero. */
+  const maxStockValue = Math.max(...topStock.map((r) => Math.abs(r.value)), 1);
   const cashInHand = useMemo(
     () =>
       netFlow(
@@ -453,6 +487,115 @@ function Dashboard() {
           </div>
         </div>
 
+        {/* ===== Stock on Hand =====
+            The client asked for item-wise stock and stock value, large and
+            "lit up". Deliberately NOT a chart: this is one headline number
+            plus a short ranked list, which is a hero figure + rows, not a
+            six-bar bar chart.
+
+            The dark panel is what does the lighting — on a dashboard that is
+            otherwise white it reads as a backlit display, and it lets the
+            total carry a real glow without shouting at the rest of the page.
+            Colour is one hue throughout; the numbers themselves stay in plain
+            near-white text and the bar beside them carries the magnitude, so
+            nothing depends on telling two colours apart. */}
+        <div className="px-5 pt-5">
+          <div className="relative overflow-hidden rounded-xl bg-[linear-gradient(135deg,#18233f_0%,#0c1223_100%)] shadow-elevated">
+            {/* The glow. Pointer-events-none and purely decorative — it sits
+                behind the text and never intercepts a tap. */}
+            <div
+              aria-hidden
+              className="pointer-events-none absolute -top-24 -right-16 h-64 w-64 rounded-full opacity-40 blur-3xl"
+              style={{ background: "radial-gradient(circle, #3b6fd4 0%, transparent 70%)" }}
+            />
+            <div className="relative p-5">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#93b4f5]">
+                    Stock on Hand
+                  </p>
+                  {/* The hero figure — the one number this view leads with.
+                      Proportional figures, not tabular: at this size
+                      tabular-nums spaces the digits out and the number reads
+                      loose. */}
+                  <p
+                    className="mt-1 text-[40px] sm:text-[52px] font-extrabold leading-none text-white truncate"
+                    /* Two shadows, not one. A single tight blur at this size
+                       pools between the glyphs and reads as a highlighter slab
+                       behind the number; a close halo plus a wide, fainter one
+                       reads as light coming off the figure. */
+                    style={{
+                      textShadow: "0 0 14px rgba(147,180,245,0.40), 0 0 52px rgba(59,111,212,0.45)",
+                    }}
+                  >
+                    ₹ {fmt(stockValue)}
+                  </p>
+                  <p className="mt-2 text-[12px] text-[#8fa3c8]">
+                    {stockRows.length} {stockRows.length === 1 ? "item" : "items"} in stock · valued
+                    at purchase price
+                  </p>
+                </div>
+                <div className="h-11 w-11 shrink-0 rounded-xl bg-white/10 ring-1 ring-white/20 flex items-center justify-center">
+                  <Package className="h-5 w-5 text-[#9dc0ff]" />
+                </div>
+              </div>
+
+              {topStock.length === 0 ? (
+                <p className="mt-5 text-[13px] text-[#8fa3c8]">
+                  No stock on hand yet — add a purchase to see it here.
+                </p>
+              ) : (
+                <div className="mt-5 space-y-2.5">
+                  {topStock.map((r) => (
+                    <button
+                      key={r.id}
+                      onClick={() => navigate({ to: "/items/$id", params: { id: r.id } })}
+                      className="w-full text-left group"
+                    >
+                      <div className="flex items-baseline justify-between gap-3">
+                        <span className="text-[13px] font-semibold text-white/90 truncate group-hover:text-white transition">
+                          {r.name}
+                        </span>
+                        <span className="shrink-0 text-[20px] sm:text-[22px] font-bold text-white tabular-nums">
+                          ₹ {fmt(r.value)}
+                        </span>
+                      </div>
+                      <div className="mt-1 flex items-center gap-3">
+                        {/* Sequential magnitude: one hue, length carries the
+                            value. Min-width so a tiny holding is still a
+                            visible mark rather than nothing at all. */}
+                        <div className="flex-1 h-1.5 rounded-full bg-white/10 overflow-hidden">
+                          <div
+                            className="h-full rounded-full bg-[#5b8def]"
+                            style={{
+                              width: `${Math.max(2, (Math.abs(r.value) / maxStockValue) * 100)}%`,
+                            }}
+                          />
+                        </div>
+                        <span
+                          className={`shrink-0 text-[12px] font-semibold tabular-nums ${r.stock < 0 ? "text-rose-300" : "text-[#9dc0ff]"}`}
+                        >
+                          {fmtQty(r.stock)} {r.unit}
+                        </span>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {stockRows.length > topStock.length && (
+                <button
+                  onClick={() => navigate({ to: "/inventory" })}
+                  className="mt-4 inline-flex items-center gap-1 text-[12px] font-semibold text-[#9dc0ff] hover:text-white transition"
+                >
+                  View all {stockRows.length} items
+                  <ChevronRight className="h-3.5 w-3.5" />
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+
         {/* Most Used Reports */}
         <div className="p-5">
           <div className="flex items-center justify-between mb-3">
@@ -523,7 +666,7 @@ function Dashboard() {
                   <div key={i.id} className="flex justify-between text-xs text-amber-700">
                     <span className="truncate flex-1">{i.name}</span>
                     <span className="font-semibold ml-2">
-                      Stock: {i.stock} / Min: {i.minStock}
+                      Stock: {fmtQty(i.stock)} / Min: {fmtQty(i.minStock ?? 0)}
                     </span>
                   </div>
                 ))}

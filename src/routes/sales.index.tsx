@@ -12,7 +12,7 @@ import {
 import { useRepoData } from "@/hooks/useRepoData";
 import { newBatch, commitBatch } from "@/repositories/base";
 import type { Invoice } from "@/types";
-import { fmtDate, fmtDateShort, fmtMoney, today, ymd } from "@/lib/format";
+import { fmtDate, fmtDateShort, fmtMoney } from "@/lib/format";
 import {
   Plus,
   Search,
@@ -42,10 +42,6 @@ export const Route = createFileRoute("/sales/")({ component: SalesPage });
 
 type Status = "all" | "paid" | "partial" | "unpaid";
 
-// Computed per mount (NOT module constants) — a tab left open overnight
-// would otherwise keep filtering on yesterday's date and hide new bills
-const monthStart = () => ymd(new Date(new Date().getFullYear(), new Date().getMonth(), 1));
-
 // Keeps the filters selected everywhere — across leaving to view/edit an
 // invoice, across leaving to a different page entirely and coming back,
 // anything short of an actual page reload (which starts fresh again).
@@ -64,8 +60,12 @@ function SalesPage() {
   const deleteAllowed = isOwner || canDelete("sales");
   const [rows, setRows] = useState<Invoice[]>([]);
   const [parties, setParties] = useState<{ id: string; name: string }[]>([]);
-  const [dateFrom, setDateFrom] = useState(() => filterCache?.dateFrom ?? monthStart());
-  const [dateTo, setDateTo] = useState(() => filterCache?.dateTo ?? today());
+  /* All time by default — both boxes empty. See the same note on the Reports
+     page: a list that silently opened on one month looked like the whole
+     book, so bills outside it read as missing. Blank is unbounded in the
+     filter below, and Clear Filters puts it back here. */
+  const [dateFrom, setDateFrom] = useState(() => filterCache?.dateFrom ?? "");
+  const [dateTo, setDateTo] = useState(() => filterCache?.dateTo ?? "");
   const [partyId, setPartyId] = useState(() => filterCache?.partyId ?? "all");
   const [status, setStatus] = useState<Status>(() => filterCache?.status ?? "all");
   const [search, setSearch] = useState(() => filterCache?.search ?? "");
@@ -118,18 +118,14 @@ function SalesPage() {
   }, [parties, partyDropQ]);
 
   const clearFilters = () => {
-    setDateFrom(monthStart());
-    setDateTo(today());
+    setDateFrom("");
+    setDateTo("");
     setPartyId("all");
     setStatus("all");
     setSearch("");
   };
   const filtersActive =
-    dateFrom !== monthStart() ||
-    dateTo !== today() ||
-    partyId !== "all" ||
-    status !== "all" ||
-    search !== "";
+    dateFrom !== "" || dateTo !== "" || partyId !== "all" || status !== "all" || search !== "";
 
   useEffect(() => {
     filterCache = { dateFrom, dateTo, partyId, status, search };

@@ -1,7 +1,5 @@
 import type { Invoice, Company, Party } from "@/types";
-import { BankRepo, PartyRepo } from "@/repositories";
-import { describePayment } from "@/lib/paymentSplit";
-import { fmtMoney } from "@/lib/format";
+import { PartyRepo } from "@/repositories";
 import {
   amountInWords,
   fmtAckDate,
@@ -50,10 +48,6 @@ const A4_CONTENT_HEIGHT = 1030;
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
 const BD = "1px solid #000";
-
-/** An account's name for display. The word "Bank" three times over is
- *  exactly what a split is meant to stop being ambiguous. */
-const bankName = (id: string) => BankRepo.get(id)?.name;
 
 /**
  * The A4 GST tax invoice, laid out to match the trade's own printed bill:
@@ -181,7 +175,6 @@ export function PrintableTaxInvoice({
 
   const qr = inv.irn ? qrSvgDataUri(inv.irn) : "";
   const title = gstOn ? "Tax Invoice" : isSale ? "Bill of Supply" : "Purchase Bill";
-  const balanceDue = r2(inv.total - inv.paid);
 
   // ---- Shared cell styles ------------------------------------------------
   const cell: React.CSSProperties = {
@@ -247,9 +240,15 @@ export function PrintableTaxInvoice({
           flexDirection: "column",
         }}
       >
-        {/* ================= Letterhead ================= */}
-        <div style={{ borderBottom: BD, padding: `${s(6)}px ${s(8)}px`, textAlign: "center" }}>
-          <div style={{ fontSize: s(24), fontWeight: 800, letterSpacing: s(0.5) }}>
+        {/* ================= Letterhead =================
+            Given real vertical room rather than being sized tight to its
+            text: this is the band a pre-printed letterhead or a rubber stamp
+            lands on, and the company name is what the buyer identifies the
+            bill by across a desk. The extra height is taken out of the
+            line-item area, which stretches, so the page still ends exactly
+            where it did. */}
+        <div style={{ borderBottom: BD, padding: `${s(14)}px ${s(8)}px`, textAlign: "center" }}>
+          <div style={{ fontSize: s(28), fontWeight: 800, letterSpacing: s(0.8) }}>
             {company.name || "Your Company"}
           </div>
           {addressLines(company.address).map((line, i) => (
@@ -498,22 +497,14 @@ export function PrintableTaxInvoice({
                 row can't leave the block short or overhanging. */}
             <tr>
               <td colSpan={5} rowSpan={taxRows.length + 1} style={cell}>
+                {/* How the bill was settled, and any balance outstanding, used
+                    to print here. Removed at the client's request: this is a
+                    tax invoice handed to the buyer, and the trade's own
+                    stationery carries no payment line — what is owed belongs
+                    on the statement and the ledger, both of which still hold
+                    it in full. Nothing about how payment is RECORDED changed;
+                    the thermal receipt still prints it. */}
                 <div style={{ ...small, marginBottom: s(4) }}>Net Rate:</div>
-                {/* How the bill was actually settled, and what's still owed.
-                    The trade's stationery has no slot for either, but both
-                    were asked for and printed before — a bill that names
-                    "Bank" without naming WHICH account, or that doesn't tell
-                    the customer what's outstanding, is a step backwards. They
-                    live in this free-form block rather than in the ruled tax
-                    column, which stays exactly as the reference has it. */}
-                <div style={{ ...small, marginBottom: s(2) }}>
-                  <span style={{ fontWeight: 700 }}>Payment:</span> {describePayment(inv, bankName)}
-                </div>
-                {balanceDue > 0.005 && (
-                  <div style={{ ...small, marginBottom: s(4), fontWeight: 700 }}>
-                    Paid {fmtMoney(inv.paid)} · Balance Due {fmtMoney(balanceDue)}
-                  </div>
-                )}
                 {inv.notes && (
                   <div style={{ ...small, marginBottom: s(4) }}>
                     <span style={{ fontWeight: 700 }}>Remark:</span> {inv.notes}
@@ -561,21 +552,26 @@ export function PrintableTaxInvoice({
           )}
         </div>
 
-        {/* ================= Signatures ================= */}
+        {/* ================= Signatures =================
+            Sized for a real rubber stamp, not just a pen stroke. A trade
+            stamp is commonly 40-45mm across; at 96dpi that is ~160px, so
+            each side gets a clear band of that order between the "FOR ..."
+            line and the signature caption. Both sides are given the SAME
+            height so the two captions sit on one line across the page. */}
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <tbody>
             <tr>
-              <td style={{ width: "50%", padding: `${s(4)}px ${s(8)}px`, verticalAlign: "top" }}>
+              <td style={{ width: "50%", padding: `${s(8)}px ${s(10)}px`, verticalAlign: "top" }}>
                 <div style={{ fontSize: s(11), fontWeight: 700 }}>
                   FOR {(inv.partyName || (isSale ? "CUSTOMER" : "SUPPLIER")).toUpperCase()}
                 </div>
-                <div style={{ height: s(44) }} />
+                <div style={{ height: s(112) }} />
                 <div style={small}>Receiver Signature</div>
               </td>
               <td
                 style={{
                   width: "50%",
-                  padding: `${s(4)}px ${s(8)}px`,
+                  padding: `${s(8)}px ${s(10)}px`,
                   textAlign: "right",
                   verticalAlign: "top",
                 }}
@@ -583,7 +579,7 @@ export function PrintableTaxInvoice({
                 <div style={{ fontSize: s(11), fontWeight: 700 }}>
                   For, {company.name || "Company"}
                 </div>
-                <div style={{ height: s(44) }} />
+                <div style={{ height: s(112) }} />
                 <div style={small}>Authorised Signature</div>
               </td>
             </tr>

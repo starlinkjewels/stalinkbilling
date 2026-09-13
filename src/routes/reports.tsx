@@ -13,7 +13,7 @@ import {
   BankRepo,
 } from "@/repositories";
 import { matchesQuery } from "@/lib/search";
-import { fmtMoney, fmtDate, today, ymd } from "@/lib/format";
+import { fmtMoney, fmtDate, today, ymd, fmtQty } from "@/lib/format";
 import { describePayment } from "@/lib/paymentSplit";
 import { printOrEscapeStandalone } from "@/lib/print";
 import { useAutoPrintFromUrl } from "@/hooks/useAutoPrintFromUrl";
@@ -64,8 +64,6 @@ export const Route = createFileRoute("/reports")({
   }),
 });
 
-const monthStart = () => ymd(new Date(new Date().getFullYear(), new Date().getMonth(), 1));
-
 const r2 = (n: number) => Math.round(n * 100) / 100;
 
 const REPORTS = [
@@ -103,8 +101,14 @@ function ReportsPage() {
   const [active, setActive] = useState(() =>
     REPORTS.some((x) => x.key === r) ? (r as string) : (activeReportCache ?? "pl"),
   );
-  const [dateFrom, setDateFrom] = useState(() => dateCache?.dateFrom ?? monthStart());
-  const [dateTo, setDateTo] = useState(() => dateCache?.dateTo ?? today());
+  /* Every date range in this app opens on ALL TIME — both boxes empty.
+     A range that quietly defaulted to a period showed a filtered view that
+     looked like the whole book: totals that didn't match the ledger, rows
+     that appeared to be missing, and nothing on screen saying why. Blank
+     means unbounded everywhere (see inRange), so what you see on opening is
+     everything there is; narrowing is then a deliberate act. */
+  const [dateFrom, setDateFrom] = useState(() => dateCache?.dateFrom ?? "");
+  const [dateTo, setDateTo] = useState(() => dateCache?.dateTo ?? "");
   const [pdfBusy, setPdfBusy] = useState<"download" | "share" | null>(null);
   // Mobile-only: the report list and the report content don't fit side by
   // side on a phone the way they do on desktop's two-pane layout, so mobile
@@ -124,7 +128,7 @@ function ReportsPage() {
 
   const current = REPORTS.find((r) => r.key === active);
   const reportFilename = () =>
-    `${(current?.label ?? "Report").replace(/\s+/g, "-")}-${dateFrom}-to-${dateTo}`;
+    `${(current?.label ?? "Report").replace(/\s+/g, "-")}-${dateFrom || "all"}-to-${dateTo || "today"}`;
 
   // Re-entry point for printOrEscapeStandalone's standalone-app escape (see
   // lib/print.ts) — the ?r= param already in this URL restores the same
@@ -178,7 +182,7 @@ function ReportsPage() {
             title="Filters"
           >
             <SlidersHorizontal className="h-4 w-4" />
-            {(dateFrom !== monthStart() || dateTo !== today()) && (
+            {(dateFrom || dateTo) && (
               <span className="absolute top-1 right-1 h-2 w-2 rounded-full bg-primary" />
             )}
           </button>
@@ -266,15 +270,15 @@ function ReportsPage() {
               </div>
             </div>
             <div className="flex items-center justify-between pt-1">
-              {dateFrom !== monthStart() || dateTo !== today() ? (
+              {dateFrom || dateTo ? (
                 <button
                   onClick={() => {
-                    setDateFrom(monthStart());
-                    setDateTo(today());
+                    setDateFrom("");
+                    setDateTo("");
                   }}
                   className="text-xs text-gray-400 hover:text-gray-600 transition flex items-center gap-1"
                 >
-                  Reset to this month
+                  Clear dates (all time)
                 </button>
               ) : (
                 <span />
@@ -934,9 +938,9 @@ function ReportView({
             i.name,
             i.sku || "—",
             i.category || "—",
-            String(i.stock),
+            fmtQty(i.stock),
             i.unit,
-            i.minStock ? String(i.minStock) : "—",
+            i.minStock != null ? fmtQty(i.minStock) : "—",
             fmtMoney(i.purchasePrice),
             fmtMoney(i.salePrice),
             fmtMoney(i.stock * i.purchasePrice),

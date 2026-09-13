@@ -29,6 +29,7 @@ import { CashBankTransferDialog } from "@/components/CashBankTransferDialog";
 import { PartyDialog } from "@/routes/parties";
 import { DataTable } from "@/components/DataTable";
 import { PrintableTaxInvoice } from "@/components/PrintableTaxInvoice";
+import { fmtNum } from "@/lib/gst";
 import { ThermalReceipt } from "@/components/ThermalReceipt";
 import { PrintableReturn } from "@/components/PrintableReturn";
 import { fmtMoney, ymd } from "@/lib/format";
@@ -1264,9 +1265,9 @@ async function runAll(): Promise<Results> {
 
     // The two screens the client compared.
     const itemsList = await renderRoute("/items");
-    assert(itemsList.includes("111 pcs"), "bulk save: the items list shows the new stock");
+    assert(itemsList.includes("111.00 pcs"), "bulk save: the items list shows the new stock");
     const itemPage = await renderRoute("/items/BU1");
-    assert(itemPage.includes("111 pcs"), "bulk save: the item's own page shows the new stock");
+    assert(itemPage.includes("111.00 pcs"), "bulk save: the item's own page shows the new stock");
     assert(
       itemPage.includes("Bulk update"),
       "bulk save: the item's history shows where the change came from",
@@ -2409,7 +2410,7 @@ async function runAll(): Promise<Results> {
     const qtyCol = colIndex("Carat");
     assert(qtyCol >= 0, "grid total: the grid has a quantity column to add up");
     assert(
-      (footCellsList[qtyCol]?.textContent ?? "").trim() === "8",
+      (footCellsList[qtyCol]?.textContent ?? "").trim() === "8.00",
       `grid total: the quantity column adds up — 7 and 1 should read 8, cell says ${JSON.stringify(footCellsList[qtyCol]?.textContent)}`,
     );
 
@@ -2837,24 +2838,37 @@ async function runAll(): Promise<Results> {
       return h.textContent ?? "";
     };
 
+    /* The A4 tax invoice carries NO payment line at all — removed at the
+       client's request, because the trade's own stationery has none: it is
+       the document handed to the buyer, and what was paid or is still owed
+       belongs on the statement and the ledger. Asserted rather than merely
+       dropped, so re-adding it is a deliberate decision and not a quiet
+       regression. */
     const bill = await show(
       <PrintableTaxInvoice inv={splitInv} company={CompanyRepo.get()} mode="sale" />,
     );
-    has(bill, "Cash", "printed split: the printed bill names the cash part");
-    has(bill, "HDFC Current", "printed split: and names the ACCOUNT, not just the word Bank");
-    has(bill, fmtMoney(400), "printed split: with how much was cash");
-    has(bill, fmtMoney(600), "printed split: and how much went to the account");
+    assert(
+      !bill.includes("HDFC Current"),
+      "printed split: the A4 tax invoice names no bank account",
+    );
+    assert(!/Balance Due|Paid /.test(bill), "printed split: and states no paid/outstanding figure");
+    /* ...but the bill it belongs to still totals correctly, so the removal
+       took the payment LINE and nothing else with it. */
+    has(bill, fmtNum(1000), "printed split: the bill's own total still prints");
 
+    /* The thermal receipt — the slip the customer is handed at the counter —
+       is where the split still has to be spelled out, account and all. */
     const receipt = await show(
       <ThermalReceipt inv={splitInv} company={CompanyRepo.get()} mode="sale" />,
     );
-    has(receipt, "HDFC Current", "printed split: the thermal receipt says it too");
+    has(receipt, "HDFC Current", "printed split: the thermal receipt names the ACCOUNT");
     has(receipt, fmtMoney(400), "printed split: including the cash part");
+    has(receipt, fmtMoney(600), "printed split: and how much went to the account");
 
     /* An ordinary bill must read exactly as it always did — one mode, named,
        and NO amount, because "Cash ₹1,000" on a ₹1,000 bill is noise. */
     const plain = await show(
-      <PrintableTaxInvoice
+      <ThermalReceipt
         inv={{ ...splitInv, id: "PRNPLAIN", paidSplits: undefined } as never}
         company={CompanyRepo.get()}
         mode="sale"
