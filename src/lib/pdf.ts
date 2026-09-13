@@ -1,8 +1,4 @@
-import {
-  renderPdfServerFn,
-  renderPdfBase64ServerFn,
-  renderPdfBatchServerFn,
-} from "@/lib/pdfServer";
+import { renderPdfServerFn, renderPdfBatchServerFn } from "@/lib/pdfServer";
 import { auth } from "@/lib/firebase";
 
 export interface PdfOptions {
@@ -41,9 +37,9 @@ function collectAppStylesheets(): string {
 /** The exported markup carries no `<script>` tags, only the printable
  * subtree's HTML plus the app's own compiled CSS, so the server just prints
  * a static page — it never boots the SPA or touches Firestore. */
-/** Exported because the WhatsApp outbox stores this string, not the rendered
- *  PDF: it is a fraction of the size, and a queued bill has to be re-rendered
- *  at send time anyway. */
+/** Exported so a caller can build the markup once and render it separately
+ *  — the bulk ledger export does exactly that, batching many documents into
+ *  a single server round trip. */
 export function buildPrintableHtml(el: HTMLElement, includeAppCss = true): string {
   // The app's compiled stylesheet is ~108 KB and gets uploaded with EVERY
   // render request. Markup that styles itself entirely inline (the party
@@ -84,24 +80,6 @@ async function elementToPdfBlob(
     },
   });
   return res.blob();
-}
-
-/** Same rendering as elementToPdfBlob, but returns base64 — for handing the
- * PDF to another server (e.g. WhatsApp send) that can't consume a Blob. */
-export async function elementToPdfBase64(
-  el: HTMLElement,
-  orientation: "portrait" | "landscape" = "landscape",
-  pageWidthMm?: number,
-): Promise<string> {
-  const { pdfBase64 } = await renderPdfBase64ServerFn({
-    data: {
-      callerIdToken: await requireIdToken(),
-      html: buildPrintableHtml(el),
-      landscape: orientation === "landscape",
-      pageWidthMm,
-    },
-  });
-  return pdfBase64;
 }
 
 function pdfFilename(name: string): string {
@@ -156,7 +134,7 @@ export async function prepareShareFile(
   return new File([blob], name, { type: "application/pdf" });
 }
 
-/** Opens the OS share sheet (WhatsApp/Mail/AirDrop/...) with the given file.
+/** Opens the OS share sheet (Mail/AirDrop/Messages/...) with the given file.
  * MUST be called directly inside a click handler with no `await` before it
  * in that same handler — this needs to be the immediate result of a user
  * gesture or Safari blocks it. Use with a file from prepareShareFile that
@@ -166,8 +144,8 @@ export async function shareFileNow(file: File): Promise<"shared" | "cancelled" |
   const nav = navigator as Navigator & { share?: (data: ShareData) => Promise<void> };
   try {
     // `text` is a no-op for targets that accept files, but for a target
-    // that only registers as a text share handler (e.g. WhatsApp Desktop
-    // on Windows) it's the only part of this call that actually arrives —
+    // that only registers as a text share handler (some Windows desktop
+    // apps do) it's the only part of this call that actually arrives —
     // the OS hands the share off silently, so the web page can't detect
     // or prevent a target dropping the attachment.
     await nav.share!({ files: [file], title: file.name, text: file.name });

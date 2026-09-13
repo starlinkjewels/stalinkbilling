@@ -23,8 +23,8 @@ const LOCAL_CHROME_CANDIDATES = [
 
 /** Shared by every PDF-producing server function below — launches headless
  * Chromium and renders `html` to raw PDF bytes. Not exported: callers only
- * ever want one of the two response shapes below (Blob for download/share,
- * base64 for the WhatsApp send), never these raw bytes directly. */
+ * ever want one of the response shapes below (a Blob for download/share, or
+ * batched base64 for the bulk ledger export), never these raw bytes. */
 type PdfBrowser = Awaited<ReturnType<typeof import("puppeteer-core").launch>>;
 
 /** Launch Chromium, run `fn`, always close.
@@ -232,15 +232,4 @@ export const renderPdfBatchServerFn = createServerFn({ method: "POST" })
       return pdfs;
     });
     return { pdfsBase64: out };
-  });
-
-/** Same rendering as renderPdfServerFn, but returns base64 JSON instead of a
- * Blob Response — for callers that need to hand the bytes to another server
- * (e.g. the WhatsApp send service), which can't consume a fetch Response. */
-export const renderPdfBase64ServerFn = createServerFn({ method: "POST" })
-  .validator(validateRenderInput)
-  .handler(async ({ data }) => {
-    await requireActiveUser(data.callerIdToken);
-    const pdf = await renderPdfBuffer(data.html, data.landscape, data.pageWidthMm);
-    return { pdfBase64: pdf.toString("base64") };
   });

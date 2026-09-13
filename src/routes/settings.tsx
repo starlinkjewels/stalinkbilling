@@ -27,7 +27,6 @@ import { APP_NAME, APP_VERSION } from "@/lib/version";
 import { auth, isBrowser } from "@/lib/firebase";
 import { usePermissions } from "@/hooks/usePermissions";
 import { TeamSection } from "@/components/TeamSection";
-import { WhatsAppSection } from "@/components/WhatsAppSection";
 import type { Company } from "@/types";
 import {
   Settings as SettingsIcon,
@@ -42,7 +41,6 @@ import {
   X,
   Plus,
   Users2,
-  MessageCircle,
   Landmark,
   AlertTriangle,
 } from "lucide-react";
@@ -157,7 +155,6 @@ function SettingsPage() {
   const companyRef = useRef<HTMLFormElement>(null);
   const categoriesRef = useRef<HTMLDivElement>(null);
   const teamRef = useRef<HTMLDivElement>(null);
-  const whatsappRef = useRef<HTMLDivElement>(null);
   const bankRef = useRef<HTMLDivElement>(null);
   const dataRef = useRef<HTMLDivElement>(null);
   const shortcutsRef = useRef<HTMLDivElement>(null);
@@ -166,9 +163,6 @@ function SettingsPage() {
     { key: "company", label: "Company Details", icon: Building2, ref: companyRef },
     { key: "categories", label: "Expense Categories", icon: Receipt, ref: categoriesRef },
     ...(isOwner ? [{ key: "team", label: "Team", icon: Users2, ref: teamRef }] : []),
-    ...(isOwner
-      ? [{ key: "whatsapp", label: "WhatsApp", icon: MessageCircle, ref: whatsappRef }]
-      : []),
     ...(isOwner ? [{ key: "banks", label: "Fix Calculations", icon: Landmark, ref: bankRef }] : []),
     { key: "data", label: "Account & Data", icon: Database, ref: dataRef },
     { key: "shortcuts", label: "Keyboard Shortcuts", icon: Keyboard, ref: shortcutsRef },
@@ -622,22 +616,6 @@ function SettingsPage() {
                 />
                 <div className="p-5">
                   <TeamSection />
-                </div>
-              </div>
-            )}
-
-            {isOwner && (
-              <div
-                ref={whatsappRef}
-                className="bg-white border border-gray-100 rounded-lg shadow-sm overflow-hidden scroll-mt-6"
-              >
-                <SectionHeader
-                  icon={<MessageCircle className="h-4 w-4" />}
-                  title="WhatsApp"
-                  description="Send bills and party ledgers straight to a customer's WhatsApp with one click, from your own shop number"
-                />
-                <div className="p-5">
-                  <WhatsAppSection />
                 </div>
               </div>
             )}

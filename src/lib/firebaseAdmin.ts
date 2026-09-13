@@ -1,6 +1,6 @@
 /**
  * Shared Firebase Admin SDK access for server functions (Team management,
- * WhatsApp connection). Everything here is memoized module-level state —
+ * server-side PDF rendering). Everything here is memoized module-level state —
  * NOT per-call — because Firestore's db.settings() can only be called once
  * ever on a given instance ("Firestore has already been initialized" if
  * called twice), and admin.initializeApp() throws if called twice too. Two
@@ -66,7 +66,7 @@ export async function getAdminDb() {
         // here.
         db.settings({ databaseId: DATABASE_ID, preferRest: true });
       } catch (err) {
-        // On Vercel, each server function (Team vs. WhatsApp) is very
+        // On Vercel, each server function (Team vs. PDF render) is very
         // likely its own separate serverless bundle — each gets its OWN
         // copy of this module, and thus its own dbPromise, even though
         // admin.firestore(app) returns the SAME underlying client

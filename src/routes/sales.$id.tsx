@@ -9,7 +9,6 @@ import { printWithName, printOrEscapeStandalone, isStandalone } from "@/lib/prin
 import { downloadElementAsPdf } from "@/lib/pdf";
 import { useShareablePdf } from "@/hooks/useShareablePdf";
 import { useFitScale } from "@/hooks/useFitScale";
-import { sendElementViaWhatsApp } from "@/lib/whatsappSend";
 import { fmtMode } from "@/lib/paymentMode";
 import { ThermalReceipt } from "@/components/ThermalReceipt";
 import { PrintableTaxInvoice } from "@/components/PrintableTaxInvoice";
@@ -25,7 +24,6 @@ import {
   FileDown,
   Share2,
   Receipt,
-  MessageCircle,
   Loader2,
 } from "lucide-react";
 
@@ -69,7 +67,7 @@ function InvoiceDetailPage() {
   const [inv, setInv] = useState<Invoice | null>(null);
   const [co, setCo] = useState<Company | null>(null);
   const [fmt, setFmt] = useState<PrintFormat>("a4");
-  const [pdfBusy, setPdfBusy] = useState<"download" | "share" | "whatsapp" | null>(null);
+  const [pdfBusy, setPdfBusy] = useState<"download" | "share" | null>(null);
   const printRef = useRef<HTMLDivElement>(null);
   const previewNativeWidth = fmt === "a4-2up" ? A4_2UP_W : fmt === "a4" ? A4_W : null;
   const { containerRef: previewRef, scale: fitScale } = useFitScale(previewNativeWidth ?? 1);
@@ -139,34 +137,6 @@ function InvoiceDetailPage() {
       );
     } catch {
       toast.error("Could not share invoice — try Download PDF instead");
-    } finally {
-      setPdfBusy(null);
-    }
-  };
-
-  const handleSendWhatsApp = async () => {
-    if (!inv || !printRef.current || pdfBusy) return;
-    setPdfBusy("whatsapp");
-    try {
-      const outcome = await sendElementViaWhatsApp({
-        el: printRef.current,
-        phone: inv.partyPhone,
-        message:
-          `Hi ${inv.partyName}, here's your invoice ${inv.number}` +
-          `${co ? ` from ${co.name}` : ""} — Total ${fmtMoney(inv.total)}. Thank you!`,
-        fileName: inv.number,
-        label: inv.number,
-        orientation: fmt === "a4-2up" ? "landscape" : "portrait",
-        pageWidthMm: thermalWidthMm,
-      });
-      /* "Queued" is not a failure and must not be dressed as one — but it is
-         not a success either, so it does not get the green tick that tells
-         the counter the customer has their bill. */
-      if (outcome.status === "sent") toast.success("Invoice sent on WhatsApp");
-      else if (outcome.kind === "offline") toast.info(outcome.message, { duration: 8000 });
-      else toast.warning(outcome.message, { duration: 10000 });
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Could not send via WhatsApp");
     } finally {
       setPdfBusy(null);
     }
@@ -262,14 +232,6 @@ function InvoiceDetailPage() {
               title={shareReady ? "PDF ready — tap again to share" : "Share invoice PDF"}
             >
               <Share2 className="h-4 w-4" />
-            </button>
-            <button
-              onClick={handleSendWhatsApp}
-              disabled={pdfBusy !== null}
-              className="h-8 w-8 shrink-0 rounded-md border border-gray-200 bg-white hover:bg-gray-50 text-gray-600 flex items-center justify-center transition disabled:opacity-50"
-              title="Send invoice on WhatsApp"
-            >
-              <MessageCircle className="h-4 w-4" />
             </button>
             <button
               onClick={() => printOrEscapeStandalone(inv.number, undefined, handleDownloadPdf)}

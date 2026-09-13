@@ -3,7 +3,7 @@
  *
  * The real hook reads the signed-in user's teamUsers doc, which only exists
  * behind a live Firebase session. Screens need *some* answer, and owner-only
- * sections (Settings → Team, WhatsApp, Bank Reconciliation) are invisible
+ * sections (Settings → Team, Fix Calculations) are invisible
  * without one — so the test drives it through a global it can flip, letting
  * the same page be asserted from both sides of the permission gate.
  */
