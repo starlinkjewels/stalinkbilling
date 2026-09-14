@@ -224,14 +224,13 @@ function ItemDetailPage() {
         />
         <Stat label="Stock Value" value={fmtMoney(r2(item.stock * item.purchasePrice))} />
         <Stat label="Purchase Price" value={fmtMoney(item.purchasePrice)} />
-        {/* The two averages the trade actually quotes, side by side.
-            Avg Buy is total buying over total carat — the whole book.
-            Balance is what the carats STILL on the shelf cost, which is the
-            figure a sale rate has to clear. Both are shown because they part
-            company the moment stock is sold after a price move, and a single
-            number would then be telling only half the story. Neither is the
-            "Purchase Price" beside them, which is just the latest catalogue
-            figure. See lib/avgCost.ts. */}
+        {/* The two rates the trade quotes, exactly as the client keeps
+            them on paper. Avg Buy is total buying over total carat — the
+            whole book, and it never moves on a sale. Rest is the running
+            break-even: what is still sunk in the item, over the carats left
+            to get it back from, so selling below cost pushes it UP. Neither
+            is the "Purchase Price" beside them, which is only the latest
+            catalogue figure. See lib/avgCost.ts. */}
         <Stat
           label={`Avg Buy / ${item.unit}`}
           value={avgCost && avgCost.boughtQty > 0 ? fmtMoney(avgCost.avgBuyRate) : "—"}
@@ -242,19 +241,22 @@ function ItemDetailPage() {
           }
         />
         <Stat
-          label={`Balance / ${item.unit}`}
-          value={avgCost ? fmtMoney(avgCost.avgCost) : "—"}
+          label={`Rest / ${item.unit}`}
+          value={avgCost && avgCost.restQty > 0 ? fmtMoney(avgCost.restRate) : "—"}
           hint={
-            avgCost?.derived === false
-              ? "No purchases yet — catalogue price"
-              : "Selling below this loses money"
+            avgCost && avgCost.restQty > 0
+              ? `${fmtMoney(avgCost.restValue)} still to recover over ${fmtQty(avgCost.restQty)} ${item.unit}`
+              : "Nothing left to sell"
           }
         />
         <Stat
           label="Sale Price"
           value={fmtMoney(item.salePrice)}
           color={
-            avgCost && item.salePrice > 0 && item.salePrice <= avgCost.avgCost
+            avgCost &&
+            item.salePrice > 0 &&
+            avgCost.restQty > 0 &&
+            item.salePrice <= avgCost.restRate
               ? "text-warning"
               : "text-gray-800"
           }
@@ -290,14 +292,17 @@ function ItemDetailPage() {
             value={avgCost && avgCost.boughtQty > 0 ? fmtMoney(avgCost.avgBuyRate) : "—"}
           />
           <MobileStatCard
-            label={`Balance / ${item.unit}`}
-            value={avgCost ? fmtMoney(avgCost.avgCost) : "—"}
+            label={`Rest / ${item.unit}`}
+            value={avgCost && avgCost.restQty > 0 ? fmtMoney(avgCost.restRate) : "—"}
           />
           <MobileStatCard
             label="Sale Price"
             value={fmtMoney(item.salePrice)}
             color={
-              avgCost && item.salePrice > 0 && item.salePrice <= avgCost.avgCost
+              avgCost &&
+              item.salePrice > 0 &&
+              avgCost.restQty > 0 &&
+              item.salePrice <= avgCost.restRate
                 ? "text-warning"
                 : "text-gray-800"
             }

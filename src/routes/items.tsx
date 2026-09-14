@@ -211,9 +211,11 @@ function ItemsPage() {
       sortValue: (r) => avgCosts.get(r.id)?.avgBuyRate ?? 0,
     },
     {
-      /* What the stock STILL ON HAND cost per unit — the break-even. */
+      /* The running break-even: money still sunk in this item, spread
+         over the carats left to recover it from. Rises when stock goes out
+         below cost — see lib/avgCost.ts. */
       key: "avgcost",
-      label: "Balance Rate",
+      label: "Rest Rate",
       width: "120px",
       align: "right",
       render: (r) => {
@@ -222,23 +224,23 @@ function ItemsPage() {
         /* Amber when the sale price is at or under the break-even: that is a
            line that loses money every time it goes out, and it should be
            visible from the list without opening the item. */
-        const losing = r.salePrice > 0 && r.salePrice <= ac.avgCost;
+        const losing = r.salePrice > 0 && ac.restQty > 0 && r.salePrice <= ac.restRate;
         return (
           <span
             className={losing ? "text-warning font-semibold" : ""}
             title={
               ac.derived
-                ? `Balance ${fmtMoney(ac.value)} over ${fmtQty(ac.onHand)} ${r.unit} still in stock` +
+                ? `${fmtMoney(ac.restValue)} still to recover over ${fmtQty(ac.restQty)} ${r.unit}` +
                   (losing ? " — the sale price is at or below it" : "")
                 : "No purchase history yet — showing the catalogue purchase price"
             }
           >
-            {fmtMoney(ac.avgCost)}
+            {ac.restQty > 0 ? fmtMoney(ac.restRate) : "—"}
             {!ac.derived && <span className="text-gray-300"> *</span>}
           </span>
         );
       },
-      sortValue: (r) => avgCosts.get(r.id)?.avgCost ?? 0,
+      sortValue: (r) => avgCosts.get(r.id)?.restRate ?? 0,
     },
     {
       key: "sale",

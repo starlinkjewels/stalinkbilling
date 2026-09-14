@@ -1958,10 +1958,17 @@ console.log(`\n═════════════════════�
   );
 }
 
-/* ══ AVCO — the break-even price of the stock still on the shelf ══════════
-   The figure the client sells against: buy into a pool, sell out of it, and
-   the average of what remains is the least a line can go out at without
-   losing money. Only INWARD movement may ever change it.
+/* ══ Item economics, the way the trade keeps them ═════════════════════════
+   Two rates, and they are not the same figure:
+
+     avgBuyRate = total buying / total carat        (never moves on a sale)
+     restRate   = (total buying − sales) / rest ct  (a running break-even)
+
+   The first case below is the client's OWN spreadsheet, figure for figure —
+   it is the specification. Note what it proves: 2.45 ct went out at 10,224.90
+   against a 16,754.23 buying rate, so the rate the rest must fetch RISES to
+   19,615.92. A weighted average (which this file used to compute) would have
+   answered 16,754.23 and never shown them they were under water on the lot.
    See src/lib/avgCost.ts. */
 {
   const AI = (over: Partial<Item> = {}): Item =>
@@ -2021,135 +2028,53 @@ console.log(`\n═════════════════════�
       adjustments: o.adjustments ?? [],
     }).get("AC1")!;
 
-  // Weighted across two lots, then a sale, then a third lot.
+  /* ── The client's spreadsheet ─────────────────────────────────────────
+       bought  5.20 ct   33,332
+               2.84 ct  101,372
+               8.04 ct  134,704   per ct 16,754.23
+       sale    2.45 ct   25,051
+       rest    5.59 ct  109,653   per ct 19,615.92                      */
   let a = avc({
     purchases: [
-      AD("2026-01-01", [{ qty: 10, price: 100 }], "b1"),
-      AD("2026-01-02", [{ qty: 10, price: 120 }], "b2"),
-      AD("2026-01-04", [{ qty: 5, price: 140 }], "b4"),
+      AD("2026-01-01", [{ qty: 5.2, price: 33332 / 5.2 }], "b1"),
+      AD("2026-01-02", [{ qty: 2.84, price: 101372 / 2.84 }], "b2"),
     ],
-    sales: [AD("2026-01-03", [{ qty: 5, price: 500 }], "s3")],
+    sales: [AD("2026-01-03", [{ qty: 2.45, price: 25051 / 2.45 }], "s1")],
   });
-  assert(approx(a.onHand, 20), "AVCO: quantity on hand follows every movement");
-  assert(approx(a.avgCost, 117.5), "AVCO: (15x110 + 5x140)/20 = 117.50");
-  assert(approx(a.value, 2350), "AVCO: stock value is onHand x average");
+  assert(approx(a.boughtQty, 8.04), "TRADE: total carat 8.04");
+  assert(approx(a.boughtValue, 134704, 1), "TRADE: total buying 134,704");
+  assert(approx(a.avgBuyRate, 16754.23, 0.02), "TRADE: buying per ct 16,754.23");
+  assert(approx(a.soldQty, 2.45), "TRADE: sale carat 2.45");
+  assert(approx(a.soldValue, 25051, 1), "TRADE: sale value 25,051");
+  assert(approx(a.restQty, 5.59), "TRADE: rest carat 5.59");
+  assert(approx(a.restValue, 109653, 1), "TRADE: rest value 109,653");
+  assert(approx(a.restRate, 19615.92, 0.02), "TRADE: rest per ct 19,615.92");
 
-  // Selling out must RESET the average — not blend the sold-out lot into the new one.
-  a = avc({
-    purchases: [
-      AD("2026-01-01", [{ qty: 10, price: 100 }], "b1"),
-      AD("2026-01-03", [{ qty: 10, price: 60 }], "b3"),
-    ],
-    sales: [AD("2026-01-02", [{ qty: 10, price: 500 }], "s2")],
-  });
-  assert(approx(a.avgCost, 60), "AVCO: restocking after selling out takes the new rate");
-
-  // A sale, at any margin, must never move the average.
+  // Selling BELOW cost must push the rest rate UP — the reason for the method.
   a = avc({
     purchases: [AD("2026-01-01", [{ qty: 10, price: 100 }], "b1")],
-    sales: [AD("2026-01-02", [{ qty: 9, price: 99999 }], "s2")],
+    sales: [AD("2026-01-02", [{ qty: 5, price: 50 }], "s1")],
   });
-  assert(approx(a.avgCost, 100), "AVCO: selling never changes what the rest of the stock cost");
+  assert(approx(a.avgBuyRate, 100), "TRADE: the buying rate never moves on a sale");
+  assert(approx(a.restRate, 150), "TRADE: selling under cost raises what the rest must fetch");
 
-  // Goods back from a customer re-enter at COST, never at the sale price.
+  // Selling ABOVE cost pulls it down.
   a = avc({
     purchases: [AD("2026-01-01", [{ qty: 10, price: 100 }], "b1")],
-    sales: [AD("2026-01-02", [{ qty: 5, price: 900, costPrice: 100 }], "s2")],
-    saleReturns: [AD("2026-01-03", [{ qty: 5, price: 900, costPrice: 100 }], "r3")],
+    sales: [AD("2026-01-02", [{ qty: 5, price: 150 }], "s1")],
   });
-  assert(
-    approx(a.avgCost, 100),
-    "AVCO: a sale return credits stock at cost, not at the sale price",
-  );
-  assert(approx(a.onHand, 10), "AVCO: and puts the quantity back");
+  assert(approx(a.restRate, 50), "TRADE: selling over cost lowers what is left to recover");
 
-  // Opening stock, with nothing traded, falls back to the catalogue cost.
-  a = avc({ items: [AI({ openingStock: 4, purchasePrice: 250 })] });
-  assert(approx(a.avgCost, 250), "AVCO: opening stock is seeded at the purchase price");
-  assert(!a.derived, "AVCO: and is flagged as not derived from real purchases");
-
-  // A line discount is part of what was really paid.
-  a = avc({ purchases: [AD("2026-01-01", [{ qty: 10, price: 100, discountPct: 10 }], "b1")] });
-  assert(approx(a.avgCost, 90), "AVCO: a purchase line discount lowers the average");
-
-  // Carats, which is what this business actually weighs in.
-  a = avc({
-    purchases: [
-      AD("2026-01-01", [{ qty: 7.05, price: 9029.53 }], "b1"),
-      AD("2026-01-03", [{ qty: 3, price: 9500 }], "b3"),
-    ],
-    sales: [AD("2026-01-02", [{ qty: 2.05, price: 12000 }], "s2")],
-  });
-  assert(approx(a.avgCost, (5 * 9029.53 + 3 * 9500) / 8, 0.01), "AVCO: weights fractional carats");
-
-  // Oversold, then restocked — must not divide through a zero holding.
-  a = avc({
-    purchases: [
-      AD("2026-01-01", [{ qty: 5, price: 100 }], "b1"),
-      AD("2026-01-03", [{ qty: 10, price: 200 }], "b3"),
-    ],
-    sales: [AD("2026-01-02", [{ qty: 8, price: 500 }], "s2")],
-  });
-  assert(Number.isFinite(a.avgCost), "AVCO: restocking from a negative balance stays finite");
-  assert(approx(a.avgCost, 200), "AVCO: and takes the incoming rate");
-
-  // A supplier return takes stock out without moving the average.
-  a = avc({
-    purchases: [
-      AD("2026-01-01", [{ qty: 10, price: 100 }], "b1"),
-      AD("2026-01-02", [{ qty: 10, price: 200 }], "b2"),
-    ],
-    purchaseReturns: [AD("2026-01-03", [{ qty: 5, price: 200 }], "pr3")],
-  });
-  assert(approx(a.avgCost, 150), "AVCO: a purchase return removes stock without repricing it");
-
-  // Order is by business DATE, not the order documents happen to arrive in.
-  a = avc({
-    purchases: [
-      AD("2026-03-01", [{ qty: 10, price: 300 }], "late"),
-      AD("2026-01-01", [{ qty: 10, price: 100 }], "early"),
-    ],
-    sales: [AD("2026-02-01", [{ qty: 10, price: 999 }], "mid")],
-  });
-  assert(approx(a.avgCost, 300), "AVCO: movements are replayed in date order");
-
-  /* ── The trade's own average: Total Buying / Total Carat ───────────────
-     The second figure the client asked for, straight off their note. It is
-     NOT the balance rate above and must not quietly become it: the balance
-     rate describes what is left on the shelf, this describes what has been
-     paid per carat over the whole book. They agree until something is sold
-     after a price move, which is exactly when a single figure would mislead. */
-  a = avc({
-    purchases: [
-      AD("2026-01-01", [{ qty: 10, price: 100 }], "b1"),
-      AD("2026-01-02", [{ qty: 10, price: 120 }], "b2"),
-    ],
-    sales: [AD("2026-01-03", [{ qty: 5, price: 500 }], "s1")],
-  });
-  assert(approx(a.boughtQty, 20), "BUY: every carat ever bought is counted");
-  assert(approx(a.boughtValue, 2200), "BUY: and what all of it cost");
-  assert(approx(a.avgBuyRate, 110), "BUY: total buying / total carat = 2200/20");
-
-  // Where the two figures genuinely diverge — the case a single number hides.
-  a = avc({
-    purchases: [
-      AD("2026-01-01", [{ qty: 10, price: 100 }], "b1"),
-      AD("2026-01-03", [{ qty: 10, price: 300 }], "b2"),
-    ],
-    sales: [AD("2026-01-02", [{ qty: 10, price: 500 }], "s1")],
-  });
-  assert(approx(a.avgBuyRate, 200), "BUY: the lifetime buying rate averages both lots");
-  assert(approx(a.avgCost, 300), "BUY: while the balance rate is the lot actually on the shelf");
-
-  // Selling is not buying, at any margin.
+  // A customer return un-does the sale, money and stock together.
   a = avc({
     purchases: [AD("2026-01-01", [{ qty: 10, price: 100 }], "b1")],
-    sales: [AD("2026-01-02", [{ qty: 9, price: 99999 }], "s1")],
+    sales: [AD("2026-01-02", [{ qty: 5, price: 150 }], "s1")],
+    saleReturns: [AD("2026-01-03", [{ qty: 5, price: 150 }], "sr")],
   });
-  assert(approx(a.avgBuyRate, 100), "BUY: a sale never moves the buying rate");
-  assert(approx(a.boughtQty, 10), "BUY: and selling never adds carats to the bought pool");
+  assert(approx(a.soldQty, 0) && approx(a.restQty, 10), "TRADE: a sale return puts the stock back");
+  assert(approx(a.restRate, 100), "TRADE: and the rate with it");
 
-  // A supplier return hands back exactly what those carats cost.
+  // A supplier return leaves the buying pool at what those carats cost.
   a = avc({
     purchases: [
       AD("2026-01-01", [{ qty: 10, price: 100 }], "b1"),
@@ -2157,34 +2082,53 @@ console.log(`\n═════════════════════�
     ],
     purchaseReturns: [AD("2026-01-03", [{ qty: 5, price: 200 }], "pr")],
   });
-  assert(approx(a.boughtQty, 15), "BUY: a purchase return removes the carats from the pool");
-  assert(approx(a.boughtValue, 2000), "BUY: at the price they were bought for");
-
-  // A CUSTOMER return is not a purchase.
-  a = avc({
-    purchases: [AD("2026-01-01", [{ qty: 10, price: 100 }], "b1")],
-    sales: [AD("2026-01-02", [{ qty: 5, price: 900, costPrice: 100 }], "s1")],
-    saleReturns: [AD("2026-01-03", [{ qty: 5, price: 900, costPrice: 100 }], "sr")],
-  });
-  assert(approx(a.boughtQty, 10), "BUY: goods back from a customer are not newly bought");
-  assert(approx(a.avgBuyRate, 100), "BUY: so the buying rate is untouched by them");
+  assert(approx(a.boughtQty, 15), "TRADE: a purchase return removes the carats");
+  assert(approx(a.boughtValue, 2000), "TRADE: at the price they were bought for");
 
   // Opening stock is stock the business paid for.
   a = avc({
     items: [AI({ openingStock: 4, purchasePrice: 250 })],
     purchases: [AD("2026-01-02", [{ qty: 6, price: 300 }], "b1")],
   });
-  assert(approx(a.avgBuyRate, 280), "BUY: opening stock counts toward the buying average");
+  assert(approx(a.avgBuyRate, 280), "TRADE: opening stock counts toward the buying rate");
 
-  // Bought and entirely returned — a zero divisor must not reach the screen.
+  // A write-off moves carats but no money, so the loss lands on the rest.
+  a = avc({
+    purchases: [AD("2026-01-01", [{ qty: 10, price: 100 }], "b1")],
+    adjustments: [
+      {
+        id: "ADJ1",
+        itemId: "AC1",
+        itemName: "Stone",
+        date: "2026-01-02",
+        type: "reduce",
+        qty: 2,
+        createdAt: "2026-01-02T00:00:00Z",
+      } as StockAdjustment,
+    ],
+  });
+  assert(approx(a.restQty, 8), "TRADE: a write-off reduces the carats left");
+  assert(approx(a.restValue, 1000), "TRADE: but not the money already sunk");
+  assert(approx(a.restRate, 125), "TRADE: so the rest has to carry it");
+
+  // Sold out — no rate, and certainly not Infinity.
   a = avc({
     purchases: [AD("2026-01-01", [{ qty: 5, price: 100 }], "b1")],
-    purchaseReturns: [AD("2026-01-02", [{ qty: 5, price: 100 }], "pr")],
+    sales: [AD("2026-01-02", [{ qty: 5, price: 120 }], "s1")],
   });
   assert(
-    Number.isFinite(a.avgBuyRate) && approx(a.avgBuyRate, 0),
-    "BUY: returning everything gives 0, never Infinity or NaN",
+    Number.isFinite(a.restRate) && approx(a.restRate, 0),
+    "TRADE: nothing left gives 0, never Infinity or NaN",
   );
+
+  // Line discounts are part of what was really paid AND really received.
+  a = avc({
+    purchases: [AD("2026-01-01", [{ qty: 10, price: 100, discountPct: 10 }], "b1")],
+    sales: [AD("2026-01-02", [{ qty: 5, price: 200, discountPct: 50 }], "s1")],
+  });
+  assert(approx(a.boughtValue, 900), "TRADE: a purchase line discount lowers the buying pool");
+  assert(approx(a.soldValue, 500), "TRADE: a sale line discount lowers what was realised");
+  assert(approx(a.restRate, 80), "TRADE: and the rest rate follows both");
 }
 
 /* ══ ONE database, named once ══════════════════════════════════════════
