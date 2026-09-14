@@ -190,9 +190,31 @@ function ItemsPage() {
       render: (r) => fmtMoney(r.purchasePrice),
     },
     {
+      /* The trade's own average: everything ever bought, divided by every
+         carat ever bought. Distinct from the balance rate beside it — see
+         lib/avgCost.ts. */
+      key: "avgbuy",
+      label: "Avg Buy Rate",
+      width: "120px",
+      align: "right",
+      render: (r) => {
+        const ac = avgCosts.get(r.id);
+        if (!ac || ac.boughtQty <= 0) return "—";
+        return (
+          <span
+            title={`Total buying ${fmtMoney(ac.boughtValue)} over ${fmtQty(ac.boughtQty)} ${r.unit}`}
+          >
+            {fmtMoney(ac.avgBuyRate)}
+          </span>
+        );
+      },
+      sortValue: (r) => avgCosts.get(r.id)?.avgBuyRate ?? 0,
+    },
+    {
+      /* What the stock STILL ON HAND cost per unit — the break-even. */
       key: "avgcost",
-      label: "Avg Cost",
-      width: "130px",
+      label: "Balance Rate",
+      width: "120px",
       align: "right",
       render: (r) => {
         const ac = avgCosts.get(r.id);
@@ -206,7 +228,7 @@ function ItemsPage() {
             className={losing ? "text-warning font-semibold" : ""}
             title={
               ac.derived
-                ? `Weighted average cost of the ${fmtQty(ac.onHand)} ${r.unit} still in stock` +
+                ? `Balance ${fmtMoney(ac.value)} over ${fmtQty(ac.onHand)} ${r.unit} still in stock` +
                   (losing ? " — the sale price is at or below it" : "")
                 : "No purchase history yet — showing the catalogue purchase price"
             }
@@ -244,7 +266,14 @@ function ItemsPage() {
       sortValue: (r) => r.stock,
     },
     {
-      key: "adjust",
+      /* "actions", not "adjust": DataTable pins the last column to the right
+         edge only when its key is action/actions (see pinLast there), and
+         this table had quietly opted out of that. It went unnoticed while the
+         grid was narrow enough to fit, then the Avg Buy and Balance columns
+         pushed the row wider than the panel and the edit/history/delete
+         buttons scrolled off where nobody would look for them. Every other
+         list in the app already names this column the same way. */
+      key: "actions",
       label: "Action",
       width: "110px",
       align: "center",

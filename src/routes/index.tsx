@@ -242,10 +242,6 @@ function Dashboard() {
     [data.items],
   );
   const topStock = stockRows.slice(0, 6);
-  /* Magnitude is carried by bar LENGTH against the biggest holding, not by a
-     different colour per row — one hue, more-is-longer (sequential). Guarded
-     against a zero/negative max so a bill-less shop can't divide by zero. */
-  const maxStockValue = Math.max(...topStock.map((r) => Math.abs(r.value)), 1);
   const cashInHand = useMemo(
     () =>
       netFlow(
@@ -488,111 +484,76 @@ function Dashboard() {
         </div>
 
         {/* ===== Stock on Hand =====
-            The client asked for item-wise stock and stock value, large and
-            "lit up". Deliberately NOT a chart: this is one headline number
-            plus a short ranked list, which is a hero figure + rows, not a
-            six-bar bar chart.
+            Item name, carats, and what those carats are worth — nothing else.
 
-            The dark panel is what does the lighting — on a dashboard that is
-            otherwise white it reads as a backlit display, and it lets the
-            total carry a real glow without shouting at the rest of the page.
-            Colour is one hue throughout; the numbers themselves stay in plain
-            near-white text and the bar beside them carries the magnitude, so
-            nothing depends on telling two colours apart. */}
+            This started as a dark "backlit" card led by one big total. The
+            total went because it was already sitting in the right-hand Stats
+            panel as "Stock Value", and printing the same number twice on one
+            screen invites the reader to check whether they match. The
+            magnitude bars went with it: the values are right there, in order,
+            and a bar only restates what the number already says. What is left
+            is the list the counter actually reads.
+
+            Ordinary white card in the app's own blue, like every other card
+            on this dashboard, rather than a colour scheme of its own. */}
         <div className="px-5 pt-5">
-          <div className="relative overflow-hidden rounded-xl bg-[linear-gradient(135deg,#18233f_0%,#0c1223_100%)] shadow-elevated">
-            {/* The glow. Pointer-events-none and purely decorative — it sits
-                behind the text and never intercepts a tap. */}
-            <div
-              aria-hidden
-              className="pointer-events-none absolute -top-24 -right-16 h-64 w-64 rounded-full opacity-40 blur-3xl"
-              style={{ background: "radial-gradient(circle, #3b6fd4 0%, transparent 70%)" }}
-            />
-            <div className="relative p-5">
-              <div className="flex items-start justify-between gap-3">
+          <div className="bg-card border border-border rounded-xl shadow-card overflow-hidden">
+            <div className="px-5 py-3.5 border-b border-border flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <div className="h-8 w-8 shrink-0 rounded-lg bg-primary-soft text-primary flex items-center justify-center ring-1 ring-primary/10">
+                  <Package className="h-4 w-4" />
+                </div>
                 <div className="min-w-0">
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#93b4f5]">
+                  <p className="text-[13px] font-semibold text-foreground leading-tight">
                     Stock on Hand
                   </p>
-                  {/* The hero figure — the one number this view leads with.
-                      Proportional figures, not tabular: at this size
-                      tabular-nums spaces the digits out and the number reads
-                      loose. */}
-                  <p
-                    className="mt-1 text-[40px] sm:text-[52px] font-extrabold leading-none text-white truncate"
-                    /* Two shadows, not one. A single tight blur at this size
-                       pools between the glyphs and reads as a highlighter slab
-                       behind the number; a close halo plus a wide, fainter one
-                       reads as light coming off the figure. */
-                    style={{
-                      textShadow: "0 0 14px rgba(147,180,245,0.40), 0 0 52px rgba(59,111,212,0.45)",
-                    }}
-                  >
-                    ₹ {fmt(stockValue)}
+                  <p className="text-[11px] text-muted-foreground">
+                    {stockRows.length} {stockRows.length === 1 ? "item" : "items"} · valued at
+                    purchase price
                   </p>
-                  <p className="mt-2 text-[12px] text-[#8fa3c8]">
-                    {stockRows.length} {stockRows.length === 1 ? "item" : "items"} in stock · valued
-                    at purchase price
-                  </p>
-                </div>
-                <div className="h-11 w-11 shrink-0 rounded-xl bg-white/10 ring-1 ring-white/20 flex items-center justify-center">
-                  <Package className="h-5 w-5 text-[#9dc0ff]" />
                 </div>
               </div>
-
-              {topStock.length === 0 ? (
-                <p className="mt-5 text-[13px] text-[#8fa3c8]">
-                  No stock on hand yet — add a purchase to see it here.
-                </p>
-              ) : (
-                <div className="mt-5 space-y-2.5">
-                  {topStock.map((r) => (
-                    <button
-                      key={r.id}
-                      onClick={() => navigate({ to: "/items/$id", params: { id: r.id } })}
-                      className="w-full text-left group"
-                    >
-                      <div className="flex items-baseline justify-between gap-3">
-                        <span className="text-[13px] font-semibold text-white/90 truncate group-hover:text-white transition">
-                          {r.name}
-                        </span>
-                        <span className="shrink-0 text-[20px] sm:text-[22px] font-bold text-white tabular-nums">
-                          ₹ {fmt(r.value)}
-                        </span>
-                      </div>
-                      <div className="mt-1 flex items-center gap-3">
-                        {/* Sequential magnitude: one hue, length carries the
-                            value. Min-width so a tiny holding is still a
-                            visible mark rather than nothing at all. */}
-                        <div className="flex-1 h-1.5 rounded-full bg-white/10 overflow-hidden">
-                          <div
-                            className="h-full rounded-full bg-[#5b8def]"
-                            style={{
-                              width: `${Math.max(2, (Math.abs(r.value) / maxStockValue) * 100)}%`,
-                            }}
-                          />
-                        </div>
-                        <span
-                          className={`shrink-0 text-[12px] font-semibold tabular-nums ${r.stock < 0 ? "text-rose-300" : "text-[#9dc0ff]"}`}
-                        >
-                          {fmtQty(r.stock)} {r.unit}
-                        </span>
-                      </div>
-                    </button>
-                  ))}
-                </div>
-              )}
-
               {stockRows.length > topStock.length && (
                 <button
                   onClick={() => navigate({ to: "/inventory" })}
-                  className="mt-4 inline-flex items-center gap-1 text-[12px] font-semibold text-[#9dc0ff] hover:text-white transition"
+                  className="shrink-0 inline-flex items-center gap-1 text-[12px] font-semibold text-primary hover:underline"
                 >
-                  View all {stockRows.length} items
+                  View all
                   <ChevronRight className="h-3.5 w-3.5" />
                 </button>
               )}
             </div>
+
+            {topStock.length === 0 ? (
+              <p className="px-5 py-6 text-[13px] text-muted-foreground">
+                No stock on hand yet — add a purchase to see it here.
+              </p>
+            ) : (
+              <div className="divide-y divide-border">
+                {topStock.map((r) => (
+                  <button
+                    key={r.id}
+                    onClick={() => navigate({ to: "/items/$id", params: { id: r.id } })}
+                    className="w-full text-left px-5 py-3 flex items-center justify-between gap-4 hover:bg-accent/50 transition"
+                  >
+                    <div className="min-w-0">
+                      <p className="text-[13px] font-semibold text-foreground truncate">{r.name}</p>
+                      {/* The carats. Given its own line in the brand blue so
+                          the weight reads as a figure in its own right and not
+                          as a footnote to the money beside it. */}
+                      <p
+                        className={`text-[15px] font-bold tabular-nums mt-0.5 ${r.stock < 0 ? "text-destructive" : "text-primary"}`}
+                      >
+                        {fmtQty(r.stock)} {r.unit}
+                      </p>
+                    </div>
+                    <p className="shrink-0 text-[17px] font-bold text-foreground tabular-nums">
+                      ₹ {fmt(r.value)}
+                    </p>
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         </div>
 

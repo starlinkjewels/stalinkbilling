@@ -213,3 +213,26 @@ export function fmtNum(n: number, dp = 2): string {
     maximumFractionDigits: dp,
   });
 }
+
+/**
+ * A state as a GST bill names it: "GUJARAT-24" — name AND code.
+ *
+ * The code is the part that matters (it is what decides CGST+SGST vs IGST),
+ * and a buyer's accounts clerk looks for it, but a party record is often
+ * saved with just the name typed in. So: keep whatever code is already
+ * there, otherwise take it from the party's own GSTIN, whose first two
+ * digits ARE the state code. With a GSTIN but no name at all, the name is
+ * derived from the code too, so the line is never left blank.
+ */
+export function stateWithCode(state?: string, gstin?: string): string {
+  const name = (state ?? "").trim().toUpperCase();
+  const fromGstin = stateCodeOfGstin(gstin);
+
+  if (!name) return fromGstin ? placeLabel(fromGstin) : "";
+
+  // Already carries a code ("GUJARAT-24", "GUJARAT 24") — leave it be.
+  if (/\d{2}\s*$/.test(name)) return name;
+
+  const code = fromGstin || stateCodeOfPlace(name);
+  return code ? `${name}-${code}` : name;
+}

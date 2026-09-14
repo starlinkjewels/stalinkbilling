@@ -8,6 +8,7 @@ import {
   isInterState,
   placeLabel,
   stateCodeOfGstin,
+  stateWithCode,
 } from "@/lib/gst";
 import { qrSvgDataUri } from "@/lib/qr";
 
@@ -170,8 +171,14 @@ export function PrintableTaxInvoice({
   // empty ruling rather than as an unexplained "0.00" above the Net Total.
   if (!taxRows.length) taxRows.push({ label: "", value: 0, blank: true });
 
+  const buyerState = stateWithCode(party?.state, party?.gstin);
+  // Place of supply gets the same treatment, so the two lines can't disagree
+  // about the code when one was typed by hand and the other derived.
   const placeOfSupply =
-    inv.placeOfSupply || party?.state || placeLabel(stateCodeOfGstin(party?.gstin)) || "";
+    stateWithCode(inv.placeOfSupply, party?.gstin) ||
+    buyerState ||
+    placeLabel(stateCodeOfGstin(party?.gstin)) ||
+    "";
 
   const qr = inv.irn ? qrSvgDataUri(inv.irn) : "";
   const title = gstOn ? "Tax Invoice" : isSale ? "Bill of Supply" : "Purchase Bill";
@@ -321,7 +328,11 @@ export function PrintableTaxInvoice({
                     {line}
                   </div>
                 ))}
-                {party?.state && <div style={small}>State Name : {party.state}</div>}
+                {/* Name AND code — "GUJARAT-24". The code is what a buyer's
+                    accounts clerk checks the tax heads against, so it is
+                    filled in from their GSTIN when the party record only has
+                    the name typed in. */}
+                {buyerState && <div style={small}>State Name : {buyerState}</div>}
                 {(party?.gstin || party?.pan) && (
                   <div style={{ ...small, fontWeight: 600 }}>
                     {party?.gstin && <>GSTIN: {party.gstin}</>}
@@ -533,7 +544,8 @@ export function PrintableTaxInvoice({
 
         {/* ================= Amount in words ================= */}
         <div style={{ borderBottom: BD, padding: `${s(4)}px ${s(8)}px`, fontSize: s(10) }}>
-          <span style={{ fontWeight: 700 }}>Amount In Words</span> : {amountInWords(inv.total)}
+          <span style={{ fontWeight: 700 }}>Amount In Words</span> :{" "}
+          <span style={{ fontWeight: 700 }}>{amountInWords(inv.total)}</span>
         </div>
 
         {/* ================= Terms ================= */}

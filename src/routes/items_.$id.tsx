@@ -216,7 +216,7 @@ function ItemDetailPage() {
       </div>
 
       {/* Summary — desktop: one row across all 6, plenty of width to spare */}
-      <div className="hidden lg:grid grid-cols-7 bg-white border-b">
+      <div className="hidden lg:grid grid-cols-8 bg-white border-b">
         <Stat
           label="Current Stock"
           value={`${fmtQty(item.stock)} ${item.unit}`}
@@ -224,12 +224,25 @@ function ItemDetailPage() {
         />
         <Stat label="Stock Value" value={fmtMoney(r2(item.stock * item.purchasePrice))} />
         <Stat label="Purchase Price" value={fmtMoney(item.purchasePrice)} />
-        {/* The break-even rate. Distinct from Purchase Price above, which is
-            only the latest/catalogue figure — this is the weighted average of
-            the stock actually on hand, so it is what a sale rate has to clear
-            to make money. */}
+        {/* The two averages the trade actually quotes, side by side.
+            Avg Buy is total buying over total carat — the whole book.
+            Balance is what the carats STILL on the shelf cost, which is the
+            figure a sale rate has to clear. Both are shown because they part
+            company the moment stock is sold after a price move, and a single
+            number would then be telling only half the story. Neither is the
+            "Purchase Price" beside them, which is just the latest catalogue
+            figure. See lib/avgCost.ts. */}
         <Stat
-          label="Avg Cost (Break-even)"
+          label={`Avg Buy / ${item.unit}`}
+          value={avgCost && avgCost.boughtQty > 0 ? fmtMoney(avgCost.avgBuyRate) : "—"}
+          hint={
+            avgCost && avgCost.boughtQty > 0
+              ? `${fmtMoney(avgCost.boughtValue)} over ${fmtQty(avgCost.boughtQty)} ${item.unit}`
+              : "Nothing bought yet"
+          }
+        />
+        <Stat
+          label={`Balance / ${item.unit}`}
           value={avgCost ? fmtMoney(avgCost.avgCost) : "—"}
           hint={
             avgCost?.derived === false
@@ -273,7 +286,11 @@ function ItemDetailPage() {
           />
           <MobileStatCard label="Purchase Price" value={fmtMoney(item.purchasePrice)} />
           <MobileStatCard
-            label="Avg Cost (Break-even)"
+            label={`Avg Buy / ${item.unit}`}
+            value={avgCost && avgCost.boughtQty > 0 ? fmtMoney(avgCost.avgBuyRate) : "—"}
+          />
+          <MobileStatCard
+            label={`Balance / ${item.unit}`}
             value={avgCost ? fmtMoney(avgCost.avgCost) : "—"}
           />
           <MobileStatCard

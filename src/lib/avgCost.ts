@@ -16,7 +16,27 @@ export interface ItemCost {
    * the catalogue purchase price rather than a figure derived from what was
    * really paid. The UI says so rather than presenting a guess as a fact. */
   derived: boolean;
+
+  /* ---- The trade's own average: total buying / total carat ---------------
+   * The diamond trade quotes one rate per carat across everything it has
+   * bought, and that is a DIFFERENT number from the balance rate above. The
+   * balance rate answers "what does what's left on the shelf cost me"; this
+   * answers "what have I paid per carat, over the whole book". They coincide
+   * only while nothing has been sold and no price has moved, which is why
+   * both are carried rather than one being derived from the other. */
+
+  /** Every carat ever bought: opening stock + purchases − purchase returns. */
+  boughtQty: number;
+  /** What all of that cost, on the same basis. */
+  boughtValue: number;
+  /** boughtValue / boughtQty — "Total Buying ÷ Total Carat". */
+  avgBuyRate: number;
 }
+
+/** What a movement WAS. Only real purchase activity belongs in the buying
+ * average — a sale return coming back in is not a purchase, and a stock
+ * adjustment has no price at all. */
+type MoveKind = "purchase" | "purchase-return" | "sale" | "sale-return" | "adjust";
 
 /** One stock movement, in the order it happened. */
 interface Move {
@@ -25,6 +45,7 @@ interface Move {
   qty: number;
   /** Acquisition rate for an inward move; ignored for outward ones. */
   rate?: number;
+  kind: MoveKind;
 }
 
 /**
@@ -71,7 +92,8 @@ export function buildAverageCosts(input: {
   const collectLines = (
     docs: { date: string; createdAt: string; lineItems: Invoice["lineItems"] }[],
     sign: 1 | -1,
-    rateOf?: (l: Invoice["lineItems"][number]) => number | undefined,
+    rateOf: ((l: Invoice["lineItems"][number]) => number | undefined) | undefined,
+    kind: MoveKind,
   ) => {
     for (const d of docs) {
       for (const l of d.lineItems) {
@@ -80,6 +102,7 @@ export function buildAverageCosts(input: {
           created: d.createdAt ?? "",
           qty: sign * l.qty,
           rate: rateOf?.(l),
+          kind,
         });
       }
     }
@@ -89,15 +112,23 @@ export function buildAverageCosts(input: {
   // an international bill converts foreignPrice at the exchange rate and adds
   // the per-piece carry cost into this very field (see Invoice.carryCostPerUnit),
   // so freight and customs are in the average rather than missing from it.
-  collectLines(input.purchases, 1, (l) => l.price * (1 - (l.discountPct ?? 0) / 100));
-  collectLines(input.purchaseReturns, -1);
-  collectLines(input.sales, -1);
+  collectLines(input.purchases, 1, (l) => l.price * (1 - (l.discountPct ?? 0) / 100), "purchase");
+  // Rate carried even though the move is outward: AVCO ignores it (selling
+  // never reprices what's left), but the BUYING pool has to give back exactly
+  // what that stock was bought for.
+  collectLines(
+    input.purchaseReturns,
+    -1,
+    (l) => l.price * (1 - (l.discountPct ?? 0) / 100),
+    "purchase-return",
+  );
+  collectLines(input.sales, -1, undefined, "sale");
   // Goods coming back from a customer re-enter at what they COST, never at
   // what they were sold for — crediting stock at the sale price would inflate
   // the average by the whole margin and quietly raise the break-even price.
   // `costPrice` is the snapshot taken when the line was billed; with no
   // snapshot the running average is used, which leaves the average untouched.
-  collectLines(input.saleReturns, 1, (l) => l.costPrice);
+  collectLines(input.saleReturns, 1, (l) => l.costPrice, "sale-return");
 
   for (const a of input.adjustments) {
     push(a.itemId, {
@@ -108,6 +139,7 @@ export function buildAverageCosts(input: {
       // is the neutral choice: valuing found stock at zero would drag the
       // break-even below what the goods really cost.
       rate: undefined,
+      kind: "adjust",
     });
   }
 
@@ -121,8 +153,20 @@ export function buildAverageCosts(input: {
     // fallback computeCogs uses, so the two agree about untraded items.
     let onHand = item.openingStock || 0;
     let avg = item.purchasePrice || 0;
+    // Opening stock counts as bought: it is stock the business owns and paid
+    // for, and leaving it out would quote an average over only the carats
+    // that happen to have a bill in this app.
+    let boughtQty = item.openingStock || 0;
+    let boughtValue = (item.openingStock || 0) * (item.purchasePrice || 0);
 
     for (const m of list) {
+      // Buying pool: purchases in, purchase returns back out, at their own
+      // rates. Sales, sale returns and adjustments never touch it — none of
+      // them is money paid to a supplier for carats.
+      if (m.kind === "purchase" || m.kind === "purchase-return") {
+        boughtQty += m.qty;
+        boughtValue += m.qty * (m.rate ?? 0);
+      }
       if (m.qty > 0) {
         const rate = m.rate ?? avg;
         // Only average against a POSITIVE holding. Blending into a negative
@@ -138,11 +182,18 @@ export function buildAverageCosts(input: {
     }
 
     onHand = r2(onHand);
+    boughtQty = r2(boughtQty);
+    boughtValue = r2(boughtValue);
     const derived = list.some((m) => m.qty > 0 && m.rate != null);
     out.set(item.id, {
       avgCost: r2(avg),
       onHand,
       value: r2(onHand * avg),
+      boughtQty,
+      boughtValue,
+      // Guarded: everything bought and then returned leaves a zero divisor,
+      // and a rate of Infinity on an item card is worse than no rate at all.
+      avgBuyRate: boughtQty > 0 ? r2(boughtValue / boughtQty) : 0,
       derived,
     });
   }

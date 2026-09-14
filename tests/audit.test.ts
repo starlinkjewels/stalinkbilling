@@ -2112,6 +2112,79 @@ console.log(`\n═════════════════════�
     sales: [AD("2026-02-01", [{ qty: 10, price: 999 }], "mid")],
   });
   assert(approx(a.avgCost, 300), "AVCO: movements are replayed in date order");
+
+  /* ── The trade's own average: Total Buying / Total Carat ───────────────
+     The second figure the client asked for, straight off their note. It is
+     NOT the balance rate above and must not quietly become it: the balance
+     rate describes what is left on the shelf, this describes what has been
+     paid per carat over the whole book. They agree until something is sold
+     after a price move, which is exactly when a single figure would mislead. */
+  a = avc({
+    purchases: [
+      AD("2026-01-01", [{ qty: 10, price: 100 }], "b1"),
+      AD("2026-01-02", [{ qty: 10, price: 120 }], "b2"),
+    ],
+    sales: [AD("2026-01-03", [{ qty: 5, price: 500 }], "s1")],
+  });
+  assert(approx(a.boughtQty, 20), "BUY: every carat ever bought is counted");
+  assert(approx(a.boughtValue, 2200), "BUY: and what all of it cost");
+  assert(approx(a.avgBuyRate, 110), "BUY: total buying / total carat = 2200/20");
+
+  // Where the two figures genuinely diverge — the case a single number hides.
+  a = avc({
+    purchases: [
+      AD("2026-01-01", [{ qty: 10, price: 100 }], "b1"),
+      AD("2026-01-03", [{ qty: 10, price: 300 }], "b2"),
+    ],
+    sales: [AD("2026-01-02", [{ qty: 10, price: 500 }], "s1")],
+  });
+  assert(approx(a.avgBuyRate, 200), "BUY: the lifetime buying rate averages both lots");
+  assert(approx(a.avgCost, 300), "BUY: while the balance rate is the lot actually on the shelf");
+
+  // Selling is not buying, at any margin.
+  a = avc({
+    purchases: [AD("2026-01-01", [{ qty: 10, price: 100 }], "b1")],
+    sales: [AD("2026-01-02", [{ qty: 9, price: 99999 }], "s1")],
+  });
+  assert(approx(a.avgBuyRate, 100), "BUY: a sale never moves the buying rate");
+  assert(approx(a.boughtQty, 10), "BUY: and selling never adds carats to the bought pool");
+
+  // A supplier return hands back exactly what those carats cost.
+  a = avc({
+    purchases: [
+      AD("2026-01-01", [{ qty: 10, price: 100 }], "b1"),
+      AD("2026-01-02", [{ qty: 10, price: 200 }], "b2"),
+    ],
+    purchaseReturns: [AD("2026-01-03", [{ qty: 5, price: 200 }], "pr")],
+  });
+  assert(approx(a.boughtQty, 15), "BUY: a purchase return removes the carats from the pool");
+  assert(approx(a.boughtValue, 2000), "BUY: at the price they were bought for");
+
+  // A CUSTOMER return is not a purchase.
+  a = avc({
+    purchases: [AD("2026-01-01", [{ qty: 10, price: 100 }], "b1")],
+    sales: [AD("2026-01-02", [{ qty: 5, price: 900, costPrice: 100 }], "s1")],
+    saleReturns: [AD("2026-01-03", [{ qty: 5, price: 900, costPrice: 100 }], "sr")],
+  });
+  assert(approx(a.boughtQty, 10), "BUY: goods back from a customer are not newly bought");
+  assert(approx(a.avgBuyRate, 100), "BUY: so the buying rate is untouched by them");
+
+  // Opening stock is stock the business paid for.
+  a = avc({
+    items: [AI({ openingStock: 4, purchasePrice: 250 })],
+    purchases: [AD("2026-01-02", [{ qty: 6, price: 300 }], "b1")],
+  });
+  assert(approx(a.avgBuyRate, 280), "BUY: opening stock counts toward the buying average");
+
+  // Bought and entirely returned — a zero divisor must not reach the screen.
+  a = avc({
+    purchases: [AD("2026-01-01", [{ qty: 5, price: 100 }], "b1")],
+    purchaseReturns: [AD("2026-01-02", [{ qty: 5, price: 100 }], "pr")],
+  });
+  assert(
+    Number.isFinite(a.avgBuyRate) && approx(a.avgBuyRate, 0),
+    "BUY: returning everything gives 0, never Infinity or NaN",
+  );
 }
 
 /* ══ ONE database, named once ══════════════════════════════════════════
