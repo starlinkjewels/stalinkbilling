@@ -335,8 +335,28 @@ export function PrintableTaxInvoice({
         <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed" }}>
           <tbody>
             <tr>
-              {/* --- Buyer / ship-to --- */}
-              <td style={{ ...cell, border: "none", borderRight: BD, width: "53%" }}>
+              {/* --- Buyer / ship-to ---
+                  50%, so the rule between this block and the invoice-meta
+                  block beside it lands on the true centre of the sheet. It sat
+                  at 53% to give the address a little more room, but the bill is
+                  read as a ruled grid and an off-centre divider is the one line
+                  on the page with nothing to line up against — it just looks
+                  like a mistake. The table is tableLayout: fixed, so the other
+                  cell takes the remaining 50% on its own.
+
+                  boxSizing is the part that actually makes it centre: without
+                  it, `width` is the CONTENT width and this cell's side padding
+                  is added on top, so a nominal 50% rendered 360px against the
+                  other cell's 339 and put the rule 11px right of centre. */}
+              <td
+                style={{
+                  ...cell,
+                  border: "none",
+                  borderRight: BD,
+                  width: "50%",
+                  boxSizing: "border-box",
+                }}
+              >
                 <div style={small}>Name &amp; Address Of {isSale ? "Customer" : "Supplier"}</div>
                 <div style={{ fontSize: s(11), fontWeight: 700 }}>{inv.partyName || "—"}</div>
                 {addressLines(party?.address).map((line, i) => (
