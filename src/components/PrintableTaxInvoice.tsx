@@ -44,11 +44,17 @@ interface Props {
   pageHeight?: number;
 }
 
-/** A4 portrait at 96dpi (1123px) less the 12mm print margins top and bottom. */
-const A4_CONTENT_HEIGHT = 1030;
+/** A4 portrait at 96dpi (1123px) less the 12mm print margins top and bottom.
+ * This is the frame's OUTER height — see boxSizing on the frame below. */
+const A4_CONTENT_HEIGHT = 1032;
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
 const BD = "1px solid #000";
+/** The outer box of the bill, on all four sides. Deliberately heavier than the
+ * rules inside it: this is the edge that says where the document starts and
+ * stops, and on a photocopied or faxed bill a hairline outer edge is the first
+ * thing to disappear. */
+const FRAME = "2px solid #000";
 
 /**
  * The A4 GST tax invoice, laid out to match the trade's own printed bill:
@@ -57,10 +63,10 @@ const BD = "1px solid #000";
  * fill the page, then a tax summary sitting beside the bank details, the
  * amount in words, the terms, and the two signature blocks.
  *
- * Every block is ruled, and ruled the SAME: one 1px black line (BD) for every
- * edge, top to bottom, with no dotted or half-drawn exceptions. A trade bill is
- * read as a grid — a missing divider makes two fields look like one, and a
- * lighter or dashed rule looks like a printing fault.
+ * Two weights of rule, and only two: FRAME for the outer box that runs right
+ * round the bill, BD for every division inside it. The heavy outer line is what
+ * makes the sheet read as one document at arm's length — the inner grid stays
+ * light so it never competes with it.
  *
  * Everything is inline-styled with explicit black borders rather than Tailwind
  * classes, for the same reason the older PrintableInvoice was: this subtree is
@@ -246,8 +252,13 @@ export function PrintableTaxInvoice({
           instead of being squashed. */}
       <div
         style={{
-          border: BD,
+          border: FRAME,
           minHeight: pageHeight,
+          // border-box, so pageHeight is the OUTER height of the sheet. With
+          // content-box the heavier FRAME added its own 4px on top of the
+          // height and pushed the bill 2px past the A4 print area — enough to
+          // spill a blank sliver onto a second page.
+          boxSizing: "border-box",
           display: "flex",
           flexDirection: "column",
         }}
@@ -288,7 +299,6 @@ export function PrintableTaxInvoice({
                   fontWeight: 600,
                   padding: `${s(4)}px ${s(8)}px`,
                   verticalAlign: "top",
-                  borderRight: BD,
                 }}
               >
                 MSME NO: {company.msmeNo ?? ""}
@@ -298,9 +308,8 @@ export function PrintableTaxInvoice({
                   textAlign: "center",
                   fontSize: s(13),
                   fontWeight: 700,
-                  padding: `${s(4)}px ${s(6)}px`,
+                  padding: `${s(4)}px 0`,
                   verticalAlign: "top",
-                  borderRight: BD,
                 }}
               >
                 {title}
@@ -349,7 +358,7 @@ export function PrintableTaxInvoice({
                 )}
                 {party?.phone && <div style={small}>Phone: {party.phone}</div>}
 
-                <div style={{ marginTop: s(5), borderTop: BD, paddingTop: s(4) }}>
+                <div style={{ marginTop: s(5), borderTop: "1px dotted #000", paddingTop: s(4) }}>
                   <div style={small}>
                     Ship To : <strong>{inv.partyName || "—"}</strong>
                   </div>
@@ -500,7 +509,7 @@ export function PrintableTaxInvoice({
 
             {/* ---- Totals strip: Pcs/Carat under their columns ---- */}
             <tr>
-              <td style={cell} colSpan={3} />
+              <td style={{ ...cell, borderRight: "none" }} colSpan={3} />
               <td style={{ ...th, fontWeight: 700 }}>{totalPcs ? fmtNum(totalPcs, 0) : ""}</td>
               <td style={{ ...cell, ...num, fontWeight: 700, verticalAlign: "middle" }}>
                 {fmtNum(totalQty)}
@@ -579,14 +588,7 @@ export function PrintableTaxInvoice({
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <tbody>
             <tr>
-              <td
-                style={{
-                  width: "50%",
-                  padding: `${s(8)}px ${s(10)}px`,
-                  verticalAlign: "top",
-                  borderRight: BD,
-                }}
-              >
+              <td style={{ width: "50%", padding: `${s(8)}px ${s(10)}px`, verticalAlign: "top" }}>
                 <div style={{ fontSize: s(11), fontWeight: 700 }}>
                   FOR {(inv.partyName || (isSale ? "CUSTOMER" : "SUPPLIER")).toUpperCase()}
                 </div>
