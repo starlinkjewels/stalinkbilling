@@ -534,10 +534,23 @@ async function runAll(): Promise<Results> {
     !staffSettings.includes("Fix Calculations"),
     "settings (staff): the owner-only recalculation tool must be hidden",
   );
+  assert(
+    !staffSettings.includes("Bill Numbering"),
+    "settings (staff): and staff can't reach the renumbering tool either",
+  );
   assert(!staffSettings.includes("Team"), "settings (staff): owner-only Team must be hidden");
 
   globalThis.__TEST_IS_OWNER__ = true;
   const ownerSettings = await renderRoute("/settings");
+  has(ownerSettings, "Bill Numbering", "settings (owner): the year-wise numbering tool");
+  has(ownerSettings, "Check Bill Numbers", "settings (owner): and its check-first action");
+  /* The warning has to be ON SCREEN, not only in the confirm dialog: this
+     rewrites numbers on bills already printed and possibly already filed. */
+  has(
+    ownerSettings,
+    "printed or filed in a GST return",
+    "settings (owner): renumbering warns what it rewrites before you press it",
+  );
   has(ownerSettings, "Fix Calculations", "settings (owner): the recalculation tool");
   has(ownerSettings, "Check Calculations", "settings (owner): the recalculation action");
   has(ownerSettings, "Check Calculations", "settings (owner): the recalculation action");

@@ -17,12 +17,19 @@ import {
 } from "@/repositories";
 import { newBatch, commitBatch } from "@/repositories/base";
 import { planDataRepair, type DataRepairPlan, type DataRepairData } from "@/lib/dataRepair";
+import {
+  planRenumber,
+  renumberWrites,
+  formatBillNumber,
+  financialYearOf,
+  type RenumberPlan,
+} from "@/lib/billNumber";
 import { useRepoData } from "@/hooks/useRepoData";
 import { Field } from "@/components/Field";
 import { Button } from "@/components/ui/button";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import { today, fmtMoney } from "@/lib/format";
+import { today, fmtMoney, fmtDate } from "@/lib/format";
 import { APP_NAME, APP_VERSION } from "@/lib/version";
 import { auth, isBrowser } from "@/lib/firebase";
 import { usePermissions } from "@/hooks/usePermissions";
@@ -43,6 +50,7 @@ import {
   Users2,
   Landmark,
   AlertTriangle,
+  Hash,
 } from "lucide-react";
 
 export const Route = createFileRoute("/settings")({ component: SettingsPage });
@@ -152,9 +160,86 @@ function SettingsPage() {
     }
   };
 
+  /* Year-wise bill numbers (INV-2026-0001). Same two-step shape as the bank
+     repair above, and for a stronger reason: a bill number is on paper the
+     customer already holds and in GST returns that may already be filed, so
+     nothing is rewritten until the owner has seen exactly what would change. */
+  const [numberPlan, setNumberPlan] = useState<RenumberPlan | null>(null);
+  const [checkingNumbers, setCheckingNumbers] = useState(false);
+
+  const renumberInput = () => ({
+    returns: SaleReturnRepo.all(),
+    payments: PaymentRepo.all(),
+  });
+
+  const checkNumbers = () => {
+    if (!areReposHydrated()) {
+      toast.error("Still loading your data from the cloud — wait a moment and try again");
+      return;
+    }
+    setCheckingNumbers(true);
+    try {
+      const plan = planRenumber(c.invoicePrefix, SalesRepo.all(), renumberInput());
+      setNumberPlan(plan);
+      if (!plan.hasWork) toast.success("Every sale bill is already numbered year-wise");
+    } finally {
+      setCheckingNumbers(false);
+    }
+  };
+
+  const applyRenumber = async () => {
+    if (!areReposHydrated()) {
+      toast.error("Still loading your data from the cloud — wait a moment and try again");
+      return;
+    }
+    // Re-plan against the live cache rather than trusting the report on
+    // screen, which may have been produced before somebody on another device
+    // added a bill. This also makes the button safe to press twice.
+    const plan = planRenumber(c.invoicePrefix, SalesRepo.all(), renumberInput());
+    if (!plan.hasWork) {
+      setNumberPlan(plan);
+      toast.success("Nothing to renumber — every bill is already year-wise");
+      return;
+    }
+    if (
+      !confirm(
+        `Renumber ${plan.rows.length} sale bill(s) year-wise?
+
+` +
+          "Their numbers will change. Any bill already printed or already filed in a " +
+          "GST return will no longer match the number on that paper. Returns and " +
+          "payments that name a bill are re-linked automatically.",
+      )
+    )
+      return;
+    setBusy(true);
+    try {
+      // Every write worked out first (see renumberWrites — it is the piece
+      // that has to catch the number stored as TEXT on returns and payments),
+      // then applied as ONE batch so a half-renumbered book is impossible.
+      const writes = renumberWrites(plan.rows, SaleReturnRepo.all(), PaymentRepo.all());
+      const batch = newBatch();
+      for (const w of writes.sales) SalesRepo.updateBatched(batch, w.id, { number: w.number });
+      for (const w of writes.returns)
+        SaleReturnRepo.updateBatched(batch, w.id, { originalRef: w.originalRef });
+      for (const w of writes.payments)
+        PaymentRepo.updateBatched(batch, w.id, { allocations: w.allocations, ref: w.ref });
+      if (!(await commitBatch(batch, "renumber sale bills"))) {
+        setNumberPlan(planRenumber(c.invoicePrefix, SalesRepo.all(), renumberInput()));
+        toast.error("The renumbering did not reach the cloud — reload the app and try again");
+        return;
+      }
+      setNumberPlan(planRenumber(c.invoicePrefix, SalesRepo.all(), renumberInput()));
+      toast.success(`Renumbered ${plan.rows.length} sale bill(s)`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const companyRef = useRef<HTMLFormElement>(null);
   const categoriesRef = useRef<HTMLDivElement>(null);
   const teamRef = useRef<HTMLDivElement>(null);
+  const numberingRef = useRef<HTMLDivElement>(null);
   const bankRef = useRef<HTMLDivElement>(null);
   const dataRef = useRef<HTMLDivElement>(null);
   const shortcutsRef = useRef<HTMLDivElement>(null);
@@ -163,6 +248,9 @@ function SettingsPage() {
     { key: "company", label: "Company Details", icon: Building2, ref: companyRef },
     { key: "categories", label: "Expense Categories", icon: Receipt, ref: categoriesRef },
     ...(isOwner ? [{ key: "team", label: "Team", icon: Users2, ref: teamRef }] : []),
+    ...(isOwner
+      ? [{ key: "numbering", label: "Bill Numbering", icon: Hash, ref: numberingRef }]
+      : []),
     ...(isOwner ? [{ key: "banks", label: "Fix Calculations", icon: Landmark, ref: bankRef }] : []),
     { key: "data", label: "Account & Data", icon: Database, ref: dataRef },
     { key: "shortcuts", label: "Keyboard Shortcuts", icon: Keyboard, ref: shortcutsRef },
@@ -616,6 +704,106 @@ function SettingsPage() {
                 />
                 <div className="p-5">
                   <TeamSection />
+                </div>
+              </div>
+            )}
+
+            {isOwner && (
+              <div
+                ref={numberingRef}
+                className="bg-white border border-gray-100 rounded-lg shadow-sm overflow-hidden scroll-mt-6"
+              >
+                <SectionHeader
+                  icon={<Hash className="h-4 w-4" />}
+                  title="Bill Numbering"
+                  description="Year-wise sale bill numbers, and a tool to put older bills on the same series"
+                />
+                <div className="p-5">
+                  <p className="text-xs text-gray-500 mb-3">
+                    New sale bills are numbered{" "}
+                    <span className="font-mono font-semibold text-gray-800">
+                      {formatBillNumber(c.invoicePrefix, financialYearOf(today()), 1)}
+                    </span>{" "}
+                    — your Invoice Prefix, the financial year, then a serial that restarts at{" "}
+                    <span className="font-semibold">0001</span> every 1 April. A bill takes the year
+                    of <span className="font-semibold">its own date</span>, so back-dating one puts
+                    it in that year's series. Purchase bills and credit/debit notes are not
+                    affected.
+                  </p>
+                  <div className="mb-4 flex items-start gap-2 text-xs bg-amber-50/70 border border-amber-200 rounded-md px-3 py-2.5">
+                    <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
+                    <p className="text-gray-700">
+                      Renumbering changes the number on bills you may have already{" "}
+                      <span className="font-semibold">printed or filed in a GST return</span>. Check
+                      first and read the list — nothing is changed until you apply it.
+                    </p>
+                  </div>
+                  <div className="flex flex-col sm:flex-row gap-2 sm:flex-wrap">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      disabled={busy || checkingNumbers}
+                      onClick={checkNumbers}
+                      className="w-full sm:w-auto"
+                    >
+                      <Hash className="h-3.5 w-3.5" />
+                      {checkingNumbers ? "Checking…" : "Check Bill Numbers"}
+                    </Button>
+                    {numberPlan?.hasWork && (
+                      <Button
+                        type="button"
+                        disabled={busy}
+                        onClick={applyRenumber}
+                        className="w-full sm:w-auto"
+                      >
+                        {busy ? "Renumbering…" : `Fix ${numberPlan.rows.length} Bill Number(s)`}
+                      </Button>
+                    )}
+                  </div>
+
+                  {numberPlan && !numberPlan.hasWork && (
+                    <div className="mt-4 flex items-start gap-2 text-xs bg-emerald-50/60 border border-emerald-100 rounded-md px-3 py-2.5">
+                      <ShieldCheck className="h-4 w-4 text-emerald-600 shrink-0 mt-0.5" />
+                      <p className="text-gray-700">
+                        All {numberPlan.unchanged} sale bill(s) are already numbered year-wise.
+                        Nothing to change.
+                      </p>
+                    </div>
+                  )}
+
+                  {numberPlan?.hasWork && (
+                    <div className="mt-4">
+                      <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
+                        {numberPlan.rows.length} bill(s) to renumber
+                        {numberPlan.unchanged > 0 && ` · ${numberPlan.unchanged} already correct`}
+                        {` · year${numberPlan.years.length > 1 ? "s" : ""} ${numberPlan.years.join(", ")}`}
+                      </p>
+                      <div className="border border-gray-100 rounded-md overflow-hidden max-h-72 overflow-y-auto">
+                        {numberPlan.rows.map((r) => (
+                          <div
+                            key={r.id}
+                            className="flex items-center justify-between gap-3 px-3 py-2 text-xs border-b border-gray-100 last:border-b-0"
+                          >
+                            <span className="min-w-0 truncate text-gray-500">
+                              <span className="font-mono text-gray-700">{r.from}</span>
+                              <span className="mx-1.5 text-gray-300">→</span>
+                              <span className="font-mono font-semibold text-emerald-700">
+                                {r.to}
+                              </span>
+                            </span>
+                            <span className="shrink-0 text-gray-400 tabular-nums">
+                              {fmtDate(r.date)}
+                              {(r.returns > 0 || r.payments > 0) && (
+                                <span className="ml-2 text-amber-600">
+                                  re-links {r.returns + r.payments}
+                                </span>
+                              )}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             )}

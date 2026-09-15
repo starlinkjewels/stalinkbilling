@@ -37,6 +37,7 @@ import type {
 } from "@/types";
 import { fmtMoney, fmtDate, today, fmtQty } from "@/lib/format";
 import { isInterState, placeLabel, stateCodeOfGstin } from "@/lib/gst";
+import { nextYearwiseNumber } from "@/lib/billNumber";
 import { toast } from "sonner";
 import { bankParts, splitProblems, largestSplitMode } from "@/lib/paymentSplit";
 import { SplitPaymentRows } from "@/components/SplitPaymentRows";
@@ -87,14 +88,27 @@ export function InvoiceForm({ mode, existing }: Props) {
   // auto-restores) it instead of creating a duplicate.
   const partyFilter = (p: Party) => !p.archived;
 
+  /**
+   * The next number for a bill dated `date`.
+   *
+   * Sale bills run year-wise (INV-2026-0001, restarting each 1 April — see
+   * lib/billNumber.ts), and the year comes from the BILL'S OWN date rather
+   * than today's, so back-dating one into last year puts it in last year's
+   * series instead of opening a hole in this year's.
+   *
+   * Purchase bills keep the plain running serial: that number is this shop's
+   * own reference for somebody else's document, not a series it has to file.
+   */
+  const nextSaleOrPurchaseNumber = (date: string) =>
+    isSale
+      ? nextYearwiseNumber(company.invoicePrefix, date, repo.all())
+      : nextInvoiceNumber(company.purchasePrefix, repo.all());
+
   const [inv, setInv] = useState<Invoice>(
     () =>
       existing ?? {
         id: "",
-        number: nextInvoiceNumber(
-          isSale ? company.invoicePrefix : company.purchasePrefix,
-          repo.all(),
-        ),
+        number: nextSaleOrPurchaseNumber(today()),
         date: today(),
         partyId: "",
         partyName: "",
@@ -253,13 +267,13 @@ export function InvoiceForm({ mode, existing }: Props) {
   const numberTouched = useRef(false);
   useEffect(() => {
     if (existing?.id || numberTouched.current) return;
-    const next = nextInvoiceNumber(
-      isSale ? company.invoicePrefix : company.purchasePrefix,
-      repo.all(),
-    );
+    // Also keyed on the bill's date: moving a new bill into another financial
+    // year has to move it into that year's series, not leave this year's
+    // number on it.
+    const next = nextSaleOrPurchaseNumber(inv.date);
     setInv((cur) => (cur.number === next ? cur : { ...cur, number: next }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [_repoV]);
+  }, [_repoV, inv.date]);
   const [saving, setSaving] = useState(false);
   const savingRef = useRef(false);
   const bankSelectRef = useRef<HTMLInputElement>(null);

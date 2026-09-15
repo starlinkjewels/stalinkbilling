@@ -39,6 +39,14 @@ import type {
 import { Repository } from "@/repositories/base";
 import { correctBankPaidAmount, planBankRepair } from "@/lib/bankRepair";
 import { buildAverageCosts } from "@/lib/avgCost";
+import {
+  financialYearOf,
+  formatBillNumber,
+  parseBillNumber,
+  nextYearwiseNumber,
+  planRenumber,
+  renumberWrites,
+} from "@/lib/billNumber";
 import { planStockRepair } from "@/lib/dataRepair";
 import {
   splitsOf,
@@ -2234,6 +2242,245 @@ console.log(`\n═════════════════════�
     server.includes("settings({ databaseId: DATABASE_ID"),
     "DB: and the server actually points the Admin SDK at it",
   );
+}
+
+/* ══ Year-wise sale bill numbers ══════════════════════════════════════════
+   INV-2026-0001, restarting at 0001 each 1 April. Two things here are easy to
+   get wrong and expensive in production: which year a date belongs to (the
+   INDIAN financial year, not the calendar one), and whether renumbering can
+   ever produce a duplicate. Both are pinned. See src/lib/billNumber.ts. */
+{
+  const SI = (id: string, date: string, number: string, created?: string): Invoice =>
+    ({
+      id,
+      number,
+      date,
+      partyId: "P",
+      partyName: "PARTY",
+      lineItems: [],
+      subtotal: 0,
+      discount: 0,
+      taxAmount: 0,
+      total: 0,
+      paid: 0,
+      paymentMode: "credit",
+      createdAt: created ?? date + "T09:00:00Z",
+    }) as Invoice;
+
+  /* ── The financial year boundary ── */
+  assert(financialYearOf("2026-03-31") === 2025, "NUM: 31 Mar 2026 is still the 2025-26 year");
+  assert(financialYearOf("2026-04-01") === 2026, "NUM: 1 Apr 2026 opens the 2026-27 year");
+  assert(
+    financialYearOf("2026-12-31") === 2026,
+    "NUM: December stays in the same year, not a new one",
+  );
+  assert(
+    financialYearOf("2027-01-15") === 2026,
+    "NUM: January is still the year that began last April",
+  );
+  assert(financialYearOf("2027-04-01") === 2027, "NUM: and 1 Apr 2027 opens the next");
+
+  /* ── Format and read-back ── */
+  assert(formatBillNumber("INV-", 2026, 1) === "INV-2026-0001", "NUM: the series format");
+  assert(
+    parseBillNumber("INV-0009") === null,
+    "NUM: a pre-series number is not read as a series one",
+  );
+  assert(parseBillNumber("2627/586") === null, "NUM: nor is another scheme's number");
+  assert(
+    parseBillNumber("STJ/2026-0042")?.serial === 42,
+    "NUM: read back whatever prefix it was saved under",
+  );
+
+  /* ── The next number ── */
+  assert(nextYearwiseNumber("INV-", "2026-09-14", []) === "INV-2026-0001", "NUM: first of a year");
+  assert(
+    nextYearwiseNumber("INV-", "2027-05-01", [SI("1", "2026-05-01", "INV-2026-0007")]) ===
+      "INV-2027-0001",
+    "NUM: a new financial year restarts at 0001",
+  );
+  assert(
+    nextYearwiseNumber("INV-", "2026-09-14", [SI("1", "2026-05-01", "INV-0009")]) ===
+      "INV-2026-0001",
+    "NUM: old plain numbers don't consume the new series",
+  );
+  // Back-dating must join THAT year's run, not today's.
+  assert(
+    nextYearwiseNumber("INV-", "2025-06-01", [
+      SI("1", "2025-06-01", "INV-2025-0003"),
+      SI("2", "2026-06-01", "INV-2026-0009"),
+    ]) === "INV-2025-0004",
+    "NUM: a back-dated bill continues its own year's series",
+  );
+  assert(
+    nextYearwiseNumber("INV-", "2026-09-14", [
+      SI("1", "2026-05-01", "INV-2026-0001"),
+      SI("2", "2026-06-01", "INV-2026-0050"),
+    ]) === "INV-2026-0051",
+    "NUM: takes the highest serial in the year, never the count",
+  );
+
+  /* ── Renumbering an existing book ── */
+  {
+    const sales = [
+      SI("A", "2026-05-10", "INV-0003"),
+      SI("B", "2026-04-02", "INV-0001"),
+      SI("C", "2027-06-01", "INV-0004"),
+      SI("D", "2026-05-10", "INV-0002", "2026-05-10T07:00:00Z"),
+    ];
+    const plan = planRenumber("INV-", sales, {
+      returns: [{ originalRef: "INV-0003" }],
+      payments: [{ allocations: [{ invoiceId: "B" }] }, { ref: "INV-0004, INV-0001" }],
+    });
+    assert(
+      plan.rows.map((r) => r.to).join(",") ===
+        "INV-2026-0001,INV-2026-0002,INV-2026-0003,INV-2027-0001",
+      "NUM: numbered in date order, restarting each year",
+    );
+    assert(
+      plan.rows[1].from === "INV-0002",
+      "NUM: two bills on one day keep the order they were entered in",
+    );
+    assert(
+      plan.rows.find((r) => r.from === "INV-0003")?.returns === 1,
+      "NUM: the plan counts a return that names the bill",
+    );
+    assert(
+      plan.rows.find((r) => r.from === "INV-0001")?.payments === 2,
+      "NUM: and payments linked by allocation AND by legacy ref text",
+    );
+
+    // THE invariant: renumbering can never mint the same number twice.
+    const produced = plan.rows.map((r) => r.to);
+    assert(
+      new Set(produced).size === produced.length,
+      "NUM: a renumber plan never produces a duplicate number",
+    );
+  }
+
+  // Idempotent — running it on an already-correct book is a no-op.
+  {
+    const done = [SI("B", "2026-04-02", "INV-2026-0001"), SI("A", "2026-05-10", "INV-2026-0002")];
+    const plan = planRenumber("INV-", done, { returns: [], payments: [] });
+    assert(!plan.hasWork, "NUM: an already year-wise book needs no work");
+    assert(plan.unchanged === 2, "NUM: and every bill is reported as already correct");
+  }
+
+  /* ── The cascade: a number lives as TEXT in three other places ──────
+     Renumbering the bill alone would leave a return's originalRef and a
+     payment's allocation/legacy-ref pointing at a number that no longer
+     exists — the over-return cap stops matching and the payment shows a
+     dead bill number. This is the part that has to be exactly right. */
+  {
+    const rows = [
+      {
+        id: "A",
+        date: "2026-05-10",
+        partyName: "P",
+        from: "INV-0003",
+        to: "INV-2026-0003",
+        returns: 1,
+        payments: 1,
+      },
+      {
+        id: "B",
+        date: "2026-04-02",
+        partyName: "P",
+        from: "INV-0001",
+        to: "INV-2026-0001",
+        returns: 0,
+        payments: 1,
+      },
+    ];
+    const returns = [
+      { id: "R1", originalRef: "INV-0003" },
+      { id: "R2", originalRef: "INV-9999" }, // names a bill that isn't moving
+      { id: "R3" }, // a standalone note, no original bill at all
+    ];
+    const payments = [
+      { id: "P1", allocations: [{ invoiceId: "A", number: "INV-0003", amount: 100 }] },
+      { id: "P2", ref: "INV-0001, INV-9999" },
+      { id: "P3", allocations: [{ invoiceId: "Z", number: "INV-9999", amount: 5 }] },
+      { id: "P4" },
+    ] as unknown as Payment[];
+
+    const w = renumberWrites(rows, returns, payments);
+
+    assert(
+      w.sales.map((x) => `${x.id}:${x.number}`).join(",") === "A:INV-2026-0003,B:INV-2026-0001",
+      "CASCADE: every renumbered bill is written",
+    );
+    assert(
+      w.returns.length === 1 &&
+        w.returns[0].id === "R1" &&
+        w.returns[0].originalRef === "INV-2026-0003",
+      "CASCADE: the return that named the bill follows it, and only that one",
+    );
+    assert(
+      w.payments.map((x) => x.id).join(",") === "P1,P2",
+      "CASCADE: only payments that actually name a moved bill are touched",
+    );
+    assert(
+      w.payments.find((x) => x.id === "P1")?.allocations?.[0].number === "INV-2026-0003",
+      "CASCADE: an allocation is matched by invoiceId and its display number updated",
+    );
+    assert(
+      w.payments.find((x) => x.id === "P2")?.ref === "INV-2026-0001, INV-9999",
+      "CASCADE: the legacy comma ref is rewritten token by token, leaving others alone",
+    );
+  }
+
+  // Two bills SWAPPING numbers must not resolve to the same one. This is the
+  // case a naive in-place rename gets wrong: renaming A->B then B->A leaves
+  // both as A if the second read sees the first's write.
+  {
+    const rows = [
+      {
+        id: "A",
+        date: "2026-04-01",
+        partyName: "P",
+        from: "INV-0002",
+        to: "INV-2026-0001",
+        returns: 0,
+        payments: 0,
+      },
+      {
+        id: "B",
+        date: "2026-04-02",
+        partyName: "P",
+        from: "INV-0001",
+        to: "INV-2026-0002",
+        returns: 0,
+        payments: 0,
+      },
+    ];
+    const w = renumberWrites(rows, [{ id: "R1", originalRef: "INV-0001" }], []);
+    assert(
+      w.sales.find((x) => x.id === "A")?.number === "INV-2026-0001" &&
+        w.sales.find((x) => x.id === "B")?.number === "INV-2026-0002",
+      "CASCADE: bills swapping positions each get their own new number",
+    );
+    assert(
+      w.returns[0].originalRef === "INV-2026-0002",
+      "CASCADE: and a return follows the bill it named, not the number's new owner",
+    );
+  }
+
+  // A larger book, to be sure uniqueness isn't an artefact of four rows.
+  {
+    const many: Invoice[] = [];
+    for (let i = 0; i < 80; i++) {
+      const month = String((i % 12) + 1).padStart(2, "0");
+      many.push(SI("X" + i, `2026-${month}-15`, "OLD-" + i, `2026-${month}-15T0${i % 9}:00:00Z`));
+    }
+    const plan = planRenumber("INV-", many, { returns: [], payments: [] });
+    const produced = plan.rows.map((r) => r.to);
+    assert(new Set(produced).size === produced.length, "NUM: still unique across 80 bills");
+    assert(
+      produced.length === 80 && plan.years.length === 2,
+      "NUM: and a Jan-Mar bill falls into the PREVIOUS financial year",
+    );
+  }
 }
 
 console.log(`  AUDIT RESULT: ${passed} assertions passed, ${failed} failed`);
