@@ -190,32 +190,15 @@ function ItemsPage() {
       render: (r) => fmtMoney(r.purchasePrice),
     },
     {
-      /* The trade's own average: everything ever bought, divided by every
-         carat ever bought. Distinct from the balance rate beside it — see
-         lib/avgCost.ts. */
-      key: "avgbuy",
-      label: "Avg Buy Rate",
-      width: "120px",
-      align: "right",
-      render: (r) => {
-        const ac = avgCosts.get(r.id);
-        if (!ac || ac.boughtQty <= 0) return "—";
-        return (
-          <span
-            title={`Total buying ${fmtMoney(ac.boughtValue)} over ${fmtQty(ac.boughtQty)} ${r.unit}`}
-          >
-            {fmtMoney(ac.avgBuyRate)}
-          </span>
-        );
-      },
-      sortValue: (r) => avgCosts.get(r.id)?.avgBuyRate ?? 0,
-    },
-    {
-      /* The running break-even: money still sunk in this item, spread
-         over the carats left to recover it from. Rises when stock goes out
-         below cost — see lib/avgCost.ts. */
+      /* THE average, and the only one shown: the money still sunk in this
+         item spread over the carats left to recover it from. It is the
+         figure the client prices against, and it rises when stock goes out
+         below cost. A second "total buying / total carat" column used to sit
+         beside it; two averages on one row only invited the question of
+         which one to trust. lib/avgCost.ts still computes both — this is
+         the one on screen. */
       key: "avgcost",
-      label: "Rest Rate",
+      label: "Average",
       width: "120px",
       align: "right",
       render: (r) => {

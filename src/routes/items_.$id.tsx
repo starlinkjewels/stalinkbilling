@@ -216,7 +216,7 @@ function ItemDetailPage() {
       </div>
 
       {/* Summary — desktop: one row across all 6, plenty of width to spare */}
-      <div className="hidden lg:grid grid-cols-8 bg-white border-b">
+      <div className="hidden lg:grid grid-cols-7 bg-white border-b">
         <Stat
           label="Current Stock"
           value={`${fmtQty(item.stock)} ${item.unit}`}
@@ -224,24 +224,13 @@ function ItemDetailPage() {
         />
         <Stat label="Stock Value" value={fmtMoney(r2(item.stock * item.purchasePrice))} />
         <Stat label="Purchase Price" value={fmtMoney(item.purchasePrice)} />
-        {/* The two rates the trade quotes, exactly as the client keeps
-            them on paper. Avg Buy is total buying over total carat — the
-            whole book, and it never moves on a sale. Rest is the running
-            break-even: what is still sunk in the item, over the carats left
-            to get it back from, so selling below cost pushes it UP. Neither
-            is the "Purchase Price" beside them, which is only the latest
-            catalogue figure. See lib/avgCost.ts. */}
+        {/* THE average, the way the client keeps it: what is still sunk in
+            the item, spread over the carats left to get it back from — so
+            selling below cost pushes it UP. Not the "Purchase Price" beside
+            it, which is only the latest catalogue figure. See
+            lib/avgCost.ts. */}
         <Stat
-          label={`Avg Buy / ${item.unit}`}
-          value={avgCost && avgCost.boughtQty > 0 ? fmtMoney(avgCost.avgBuyRate) : "—"}
-          hint={
-            avgCost && avgCost.boughtQty > 0
-              ? `${fmtMoney(avgCost.boughtValue)} over ${fmtQty(avgCost.boughtQty)} ${item.unit}`
-              : "Nothing bought yet"
-          }
-        />
-        <Stat
-          label={`Rest / ${item.unit}`}
+          label={`Average / ${item.unit}`}
           value={avgCost && avgCost.restQty > 0 ? fmtMoney(avgCost.restRate) : "—"}
           hint={
             avgCost && avgCost.restQty > 0
@@ -288,11 +277,7 @@ function ItemDetailPage() {
           />
           <MobileStatCard label="Purchase Price" value={fmtMoney(item.purchasePrice)} />
           <MobileStatCard
-            label={`Avg Buy / ${item.unit}`}
-            value={avgCost && avgCost.boughtQty > 0 ? fmtMoney(avgCost.avgBuyRate) : "—"}
-          />
-          <MobileStatCard
-            label={`Rest / ${item.unit}`}
+            label={`Average / ${item.unit}`}
             value={avgCost && avgCost.restQty > 0 ? fmtMoney(avgCost.restRate) : "—"}
           />
           <MobileStatCard

@@ -11,8 +11,10 @@ import {
   SaleReturnRepo,
   PurchaseReturnRepo,
   CashAdjustmentRepo,
+  StockAdjustmentRepo,
 } from "@/repositories";
 import { useRepoData } from "@/hooks/useRepoData";
+import { buildAverageCosts } from "@/lib/avgCost";
 import type {
   Invoice,
   Return,
@@ -22,6 +24,7 @@ import type {
   BankAccount,
   Payment,
   CashAdjustment,
+  StockAdjustment,
 } from "@/types";
 import { fmtMoney, ymd, fmtQty } from "@/lib/format";
 import {
@@ -135,6 +138,9 @@ function Dashboard() {
     saleReturns: Return[];
     purchaseReturns: Return[];
     cashAdjustments: CashAdjustment[];
+    // Needed by the per-item average: a write-off moves carats without
+    // moving money, so it changes what the outstanding money is spread over.
+    stockAdjustments: StockAdjustment[];
   }>({
     sales: [],
     purchases: [],
@@ -146,6 +152,7 @@ function Dashboard() {
     saleReturns: [],
     purchaseReturns: [],
     cashAdjustments: [],
+    stockAdjustments: [],
   });
 
   useEffect(() => {
@@ -160,6 +167,7 @@ function Dashboard() {
       saleReturns: SaleReturnRepo.all(),
       purchaseReturns: PurchaseReturnRepo.all(),
       cashAdjustments: CashAdjustmentRepo.all(),
+      stockAdjustments: StockAdjustmentRepo.all(),
     });
   }, [_repoV]);
 
@@ -227,19 +235,41 @@ function Dashboard() {
      stock report already use, so the dashboard can't disagree with them.
      Items sitting at zero are left out: a list of nothings buries the rows
      that matter. */
+  /* The per-item average the client prices against — what is still sunk in
+     the item over the carats left to recover it from (see lib/avgCost.ts).
+     Built once for every item, not per row: it replays the whole document
+     history. */
+  const avgCosts = useMemo(
+    () =>
+      buildAverageCosts({
+        items: data.items,
+        purchases: data.purchases,
+        sales: data.sales,
+        saleReturns: data.saleReturns,
+        purchaseReturns: data.purchaseReturns,
+        adjustments: data.stockAdjustments,
+      }),
+    [data],
+  );
   const stockRows = useMemo(
     () =>
       data.items
         .filter((i) => (i.stock || 0) !== 0)
-        .map((i) => ({
-          id: i.id,
-          name: i.name,
-          unit: i.unit,
-          stock: i.stock || 0,
-          value: r2((i.stock || 0) * (i.purchasePrice || 0)),
-        }))
+        .map((i) => {
+          const ac = avgCosts.get(i.id);
+          return {
+            id: i.id,
+            name: i.name,
+            unit: i.unit,
+            stock: i.stock || 0,
+            value: r2((i.stock || 0) * (i.purchasePrice || 0)),
+            // 0 when there is nothing left to spread the money over — the row
+            // then simply doesn't print a rate rather than a divide-by-zero.
+            avg: ac && ac.restQty > 0 ? ac.restRate : 0,
+          };
+        })
         .sort((a, b) => b.value - a.value),
-    [data.items],
+    [data.items, avgCosts],
   );
   const topStock = stockRows.slice(0, 6);
   const cashInHand = useMemo(
@@ -540,11 +570,20 @@ function Dashboard() {
                       <p className="text-[13px] font-semibold text-foreground truncate">{r.name}</p>
                       {/* The carats. Given its own line in the brand blue so
                           the weight reads as a figure in its own right and not
-                          as a footnote to the money beside it. */}
-                      <p
-                        className={`text-[15px] font-bold tabular-nums mt-0.5 ${r.stock < 0 ? "text-destructive" : "text-primary"}`}
-                      >
-                        {fmtQty(r.stock)} {r.unit}
+                          as a footnote to the money beside it. The average sits
+                          beside it as a RATE — "/ct" spelled out, so it is never
+                          mistaken for another total. */}
+                      <p className="mt-0.5 flex items-baseline gap-2 flex-wrap">
+                        <span
+                          className={`text-[15px] font-bold tabular-nums ${r.stock < 0 ? "text-destructive" : "text-primary"}`}
+                        >
+                          {fmtQty(r.stock)} {r.unit}
+                        </span>
+                        {r.avg > 0 && (
+                          <span className="text-[12px] font-semibold tabular-nums text-muted-foreground">
+                            avg ₹ {fmt(r.avg)} / {r.unit}
+                          </span>
+                        )}
                       </p>
                     </div>
                     <p className="shrink-0 text-[17px] font-bold text-foreground tabular-nums">
