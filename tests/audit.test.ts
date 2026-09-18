@@ -2139,26 +2139,29 @@ console.log(`\n═════════════════════�
   assert(approx(a.restRate, 80), "TRADE: and the rest rate follows both");
 
   /* ── The client's live CVD sheet, whole ────────────────────────────────
-     Nine purchases (the first being opening stock) and seven sales, with
-     real GST on both sides. This is the case that pins WHICH money counts:
+     Nine purchases (the first being opening stock) and seven sales:
 
-       purchases  67.25 ct   9,53,947.17  ex-GST      -> 14,185.09 / ct
-       sales      57.29 ct   7,89,385.70  incl-GST
-       stock       9.96 ct   1,64,561.47              -> 16,522.24 / ct
+       purchases  67.25 ct   9,53,947.17   -> 14,185.09 / ct
+       sales      57.29 ct   7,89,385.70
+       stock       9.96 ct   1,64,561.47   -> 16,522.24 / ct
 
      Their sheet's own totals are 67.25 / 14185 / 9.96 / 164561 / 16522.
-     Counting both sides ex-GST would give 17,693.49 and both incl-GST
-     17,244.83 — so this asserts the asymmetry deliberately, not by accident. */
+
+     Note WHICH sale figure is fed in: 7,89,385.70, their sheet's TOTAL GST
+     column — the amount the customer actually pays. That is what a rate typed
+     on a bill in this app already carries, so the calculation takes line
+     values as entered and adds nothing. It briefly added GST on top of them
+     instead, which counted the tax twice and moved this very lot's live
+     average from 16,521.38 to 14,869.41. */
   {
-    // price is quoted per carat ex-GST; GST is 1.5% throughout this lot.
     const buy = (date: string, ct: number, total: number, id: string) =>
       AD(date, [{ qty: ct, price: total / ct, gstRate: 1.5 }], id);
-    const sell = (date: string, ct: number, total: number, id: string) =>
-      AD(date, [{ qty: ct, price: total / ct, gstRate: 1.5 }], id);
+    // Sale totals are the GST-inclusive figures, because that is the money the
+    // bill is written for.
+    const sell = (date: string, ct: number, inclGst: number, id: string) =>
+      AD(date, [{ qty: ct, price: inclGst / ct, gstRate: 1.5 }], id);
 
     const cvd = avc({
-      // Opening stock is the sheet's own "OPNING" row — carried as a purchase
-      // with no GST, which is exactly how they enter it.
       purchases: [
         AD("2026-04-01", [{ qty: 14.37, price: 474181.26 / 14.37, gstRate: 0 }], "OPNING"),
         buy("2026-06-03", 16.1, 142658.08, "KIRA1"),
@@ -2171,33 +2174,36 @@ console.log(`\n═════════════════════�
         buy("2026-08-06", 1.51, 12203.52, "CREATIVE"),
       ],
       sales: [
-        sell("2026-05-12", 14.37, 213208, "S1"),
-        sell("2026-07-24", 5.5, 50985, "S3"),
-        sell("2026-07-27", 28.22, 325842, "S5"),
-        sell("2026-08-03", 1.38, 15932, "S6"),
-        sell("2026-08-17", 3.48, 80937.1, "S7"),
-        sell("2026-08-22", 3.04, 68893.9, "S8"),
-        sell("2026-09-02", 1.3, 21922, "S9"),
+        sell("2026-05-12", 14.37, 216405.81, "S1"),
+        sell("2026-07-24", 5.5, 51749.78, "S3"),
+        sell("2026-07-27", 28.22, 330729.86, "S5"),
+        sell("2026-08-03", 1.38, 16170.94, "S6"),
+        sell("2026-08-17", 3.48, 82151.2, "S7"),
+        sell("2026-08-22", 3.04, 69927.29, "S8"),
+        sell("2026-09-02", 1.3, 22250.82, "S9"),
       ],
     });
 
     assert(approx(cvd.boughtQty, 67.25), "CVD: 67.25 ct bought");
-    assert(approx(cvd.boughtValue, 953947.17, 1), "CVD: 9,53,947 bought, ex-GST");
+    assert(approx(cvd.boughtValue, 953947.17, 1), "CVD: 9,53,947 bought");
     assert(approx(cvd.avgBuyRate, 14185.09, 0.5), "CVD: buying 14,185 / ct");
     assert(approx(cvd.soldQty, 57.29), "CVD: 57.29 ct sold");
-    assert(approx(cvd.soldValue, 789385.7, 2), "CVD: 7,89,386 realised, GST INCLUDED");
+    assert(approx(cvd.soldValue, 789385.7, 2), "CVD: 7,89,386 realised");
     assert(approx(cvd.restQty, 9.96), "CVD: 9.96 ct left, matching their STOCK");
     assert(approx(cvd.restValue, 164561.47, 2), "CVD: 1,64,561 still to recover");
     assert(approx(cvd.restRate, 16522.24, 0.5), "CVD: 16,522 / ct — their PER CARAT");
 
-    // The asymmetry is the point: prove the other two readings are NOT it.
+    /* THE regression guard. Adding GST on top of a rate that already carries
+       it drops this lot to about 14,869 — the number the client reported as
+       wrong. Pinned so it cannot come back. */
     assert(
-      !approx(cvd.restRate, 17693.49, 1) && !approx(cvd.restRate, 17244.83, 1),
-      "CVD: not the both-ex-GST nor the both-incl-GST reading",
+      !approx(cvd.restRate, 14869.41, 5),
+      "CVD: GST is never added on top of an entered rate (that gave 14,869)",
     );
   }
 
-  // A bill of supply has no GST to add, so selling is just its taxable value.
+  // Whether the bill carries GST or not makes no difference: the line value
+  // as entered is what counts, on both sides.
   a = avc({
     purchases: [AD("2026-01-01", [{ qty: 10, price: 100, gstRate: 3 }], "b1")],
     sales: [
@@ -2207,7 +2213,7 @@ console.log(`\n═════════════════════�
       } as Invoice,
     ],
   });
-  assert(approx(a.soldValue, 500), "TRADE: a non-GST bill realises only its taxable value");
+  assert(approx(a.soldValue, 500), "TRADE: a sale realises exactly what its lines say");
 }
 
 /* ══ ONE database, named once ══════════════════════════════════════════

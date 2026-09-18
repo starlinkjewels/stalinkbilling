@@ -6,8 +6,7 @@ export interface ItemCost {
   /* ---- Bought ---------------------------------------------------------- */
   /** Every carat ever bought: opening stock + purchases − purchase returns. */
   boughtQty: number;
-  /** What all of that cost, EX-GST (the GST is reclaimable input credit),
-   * after any line discount. */
+  /** What all of that cost, as entered, after any line discount. */
   boughtValue: number;
   /** boughtValue / boughtQty — the trade's "Total Buying ÷ Total Carat". */
   avgBuyRate: number;
@@ -15,8 +14,8 @@ export interface ItemCost {
   /* ---- Sold ------------------------------------------------------------ */
   /** Carats sold, net of anything customers sent back. */
   soldQty: number;
-  /** What those sales actually brought in, GST INCLUDED — the amount the
-   * customer handed over — net of anything sent back. See lineValue. */
+  /** What those sales brought in, on the same basis as boughtValue, net of
+   * anything sent back. See lineValue. */
   soldValue: number;
 
   /* ---- Rest ------------------------------------------------------------ */
@@ -65,8 +64,8 @@ export interface ItemCost {
  * through a sale — it would have answered 16,754.23 for the rest above, and
  * so would never have told them they were now under water on the lot.
  *
- * Buying is counted ex-GST and selling GST-inclusive — see lineValue for
- * why, and for the client's own sheet that only reconciles that way. Nothing
+ * Both sides are measured the same way — the line value as entered, after any
+ * line discount; see lineValue for why GST is not added to either. Nothing
  * here is written to a document or to a stored total: it is derived read-only
  * from history on every call, so it cannot drift the way a running total can.
  *
@@ -82,28 +81,25 @@ export function buildAverageCosts(input: {
   purchaseReturns: Return[];
   adjustments: StockAdjustment[];
 }): Map<string, ItemCost> {
-  /** A line's taxable value — after any line discount, before tax. */
-  const taxable = (l: Invoice["lineItems"][number]) =>
-    l.qty * l.price * (1 - (l.discountPct ?? 0) / 100);
-
   /**
-   * What a line is worth to this calculation. The two sides are deliberately
-   * NOT measured the same way, because they are not the same kind of money:
+   * What a line is worth to this calculation: its line value, after any line
+   * discount — the same measure on BOTH sides, so the subtraction is like for
+   * like.
    *
-   *   buying  — EX-GST. The GST paid to a supplier comes back as input credit,
-   *             so it was never really a cost of the goods.
-   *   selling — INCLUDING GST. This is the figure the customer actually hands
-   *             over against the bill.
+   * GST is deliberately NOT added to the sale side. It was, briefly, because
+   * the client's CVD spreadsheet reconciles as "purchases ex-GST less sales
+   * INCLUDING GST". That is true of the spreadsheet and false of this app,
+   * because the two are fed differently: the rate entered on a bill here
+   * already carries the money the customer hands over. Adding GST on top of
+   * it counted the tax twice, and it moved a live average the client prices
+   * against — CVD went from 16,521.38 to 14,869.41 — which is exactly the
+   * kind of silent change a stored figure must never make.
    *
-   * So "still to recover" is real cost less cash received. This is the
-   * client's own method, and their CVD sheet only reconciles this way:
-   * purchases 9,53,947.17 ex-GST less sales 7,89,385.70 incl-GST leaves
-   * 1,64,561.47 over 9.96 ct = 16,522.24/ct, exactly the figures on it.
-   * Measuring both sides ex-GST gives 17,693.49 and both incl-GST 17,244.83 —
-   * neither is what they work to.
+   * If sale rates are ever entered ex-GST instead, this is the one line that
+   * would need to change, and the averages would move the day it did.
    */
-  const lineValue = (l: Invoice["lineItems"][number], withGst: boolean) =>
-    taxable(l) * (withGst ? 1 + (l.gstRate ?? 0) / 100 : 1);
+  const lineValue = (l: Invoice["lineItems"][number]) =>
+    l.qty * l.price * (1 - (l.discountPct ?? 0) / 100);
 
   interface Tally {
     boughtQty: number;
@@ -133,24 +129,20 @@ export function buildAverageCosts(input: {
   };
 
   const addLines = (
-    docs: { lineItems: Invoice["lineItems"]; gstEnabled?: boolean }[],
+    docs: { lineItems: Invoice["lineItems"] }[],
     side: "bought" | "sold",
     sign: 1 | -1,
   ) => {
-    for (const doc of docs) {
-      // A bill of supply carries no GST to add, so "including GST" is simply
-      // its taxable value — guarded explicitly rather than trusting gstRate
-      // to be 0 on a non-GST document.
-      const withGst = side === "sold" && doc.gstEnabled !== false;
-      for (const l of doc.lineItems) {
+    for (const d of docs) {
+      for (const l of d.lineItems) {
         const t = of(l.itemId);
         if (side === "bought") {
           t.boughtQty += sign * l.qty;
-          t.boughtValue += sign * lineValue(l, false);
+          t.boughtValue += sign * lineValue(l);
           if (sign === 1) t.sawPurchase = true;
         } else {
           t.soldQty += sign * l.qty;
-          t.soldValue += sign * lineValue(l, withGst);
+          t.soldValue += sign * lineValue(l);
         }
       }
     }
