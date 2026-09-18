@@ -489,8 +489,10 @@ async function runAll(): Promise<Results> {
   has(home, `₹ ${fmt(-4700)}`, "dashboard: Cash On Hand = −4700");
   // stored 11400; the sale is tied to account B1 so it is NOT added again
   has(home, `₹ ${fmt(11400)}`, "dashboard: Total Bank Balance = 11400");
-  // 40×60 + 2×90
-  has(home, `₹ ${fmt(2580)}`, "dashboard: Stock Value = 2580");
+  /* Stock Value is the money still to RECOVER, not carats x the latest
+     purchase price: I1 bought 50@60 = 3000 less 900 realised (10 sold @100,
+     1 returned) = 2100; I2 bought 15@90 = 1350, nothing sold. */
+  has(home, `₹ ${fmt(3450)}`, "dashboard: Stock Value = 3450, on the recover basis");
   has(home, `₹ ${fmt(450)}`, "dashboard: Purchases this period = 450");
   has(home, `₹ ${fmt(5000)}`, "dashboard: Expenses this period = 5000");
   // 1000 − 100 − 540 COGS − 5000 expenses (GST-exclusive, so unchanged here)

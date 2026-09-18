@@ -11,10 +11,9 @@ import {
   SaleReturnRepo,
   PurchaseReturnRepo,
   CashAdjustmentRepo,
-  StockAdjustmentRepo,
 } from "@/repositories";
 import { useRepoData } from "@/hooks/useRepoData";
-import { buildAverageCosts } from "@/lib/avgCost";
+import { useItemCosts } from "@/hooks/useItemCosts";
 import type {
   Invoice,
   Return,
@@ -24,7 +23,6 @@ import type {
   BankAccount,
   Payment,
   CashAdjustment,
-  StockAdjustment,
 } from "@/types";
 import { fmtMoney, ymd, fmtQty } from "@/lib/format";
 import {
@@ -138,9 +136,6 @@ function Dashboard() {
     saleReturns: Return[];
     purchaseReturns: Return[];
     cashAdjustments: CashAdjustment[];
-    // Needed by the per-item average: a write-off moves carats without
-    // moving money, so it changes what the outstanding money is spread over.
-    stockAdjustments: StockAdjustment[];
   }>({
     sales: [],
     purchases: [],
@@ -152,7 +147,6 @@ function Dashboard() {
     saleReturns: [],
     purchaseReturns: [],
     cashAdjustments: [],
-    stockAdjustments: [],
   });
 
   useEffect(() => {
@@ -167,7 +161,6 @@ function Dashboard() {
       saleReturns: SaleReturnRepo.all(),
       purchaseReturns: PurchaseReturnRepo.all(),
       cashAdjustments: CashAdjustmentRepo.all(),
-      stockAdjustments: StockAdjustmentRepo.all(),
     });
   }, [_repoV]);
 
@@ -228,49 +221,49 @@ function Dashboard() {
   const receivableParties = customerBalances.length;
   const payableParties = supplierBalances.length;
 
-  const stockValue = data.items.reduce((a, i) => a + (i.stock || 0) * (i.purchasePrice || 0), 0);
-  /* Item-wise stock, biggest holding first — the panel below leads with the
-     total and then shows where that money actually is. Valued at purchase
-     price, the SAME basis the Stock Value stat, the Inventory page and the
-     stock report already use, so the dashboard can't disagree with them.
-     Items sitting at zero are left out: a list of nothings buries the rows
-     that matter. */
-  /* The per-item average the client prices against — what is still sunk in
-     the item over the carats left to recover it from (see lib/avgCost.ts).
-     Built once for every item, not per row: it replays the whole document
-     history. */
-  const avgCosts = useMemo(
-    () =>
-      buildAverageCosts({
-        items: data.items,
-        purchases: data.purchases,
-        sales: data.sales,
-        saleReturns: data.saleReturns,
-        purchaseReturns: data.purchaseReturns,
-        adjustments: data.stockAdjustments,
-      }),
-    [data],
-  );
+  /* The per-item figures the client works to (see lib/avgCost.ts):
+       Average    — what the carats left must still fetch, per carat
+       Stock      — the carats left
+       Stock Value— Average x Stock, i.e. the money still to recover
+
+     Stock Value used to be carats x the latest purchase price. That was only
+     ever a proxy, and once the Average sat next to it the two visibly failed
+     to multiply out. It is now the client's own basis, the same one their CVD
+     sheet totals: 9.96 ct at 16,522.23 = 1,64,561, their "TOTAL RS".
+
+     It can go NEGATIVE — a lot already sold for more than it cost has nothing
+     left to recover — and that is shown rather than floored, in red. */
+  const itemCosts = useItemCosts();
   const stockRows = useMemo(
     () =>
       data.items
-        .filter((i) => (i.stock || 0) !== 0)
         .map((i) => {
-          const ac = avgCosts.get(i.id);
+          const ac = itemCosts.get(i.id);
           return {
             id: i.id,
             name: i.name,
             unit: i.unit,
-            stock: i.stock || 0,
-            value: r2((i.stock || 0) * (i.purchasePrice || 0)),
-            // 0 when there is nothing left to spread the money over — the row
-            // then simply doesn't print a rate rather than a divide-by-zero.
-            avg: ac && ac.restQty > 0 ? ac.restRate : 0,
+            /* The DERIVED carats — bought less sold, plus adjustments — not the
+               stored Item.stock. The two are the same number whenever the
+               stored total is right, and this is the one the other two columns
+               are built from, so the row always multiplies out. Where they do
+               differ, the stored total has drifted from the documents behind
+               it and Settings → Fix Calculations is what puts it back. */
+            stock: ac?.restQty ?? 0,
+            // null, not 0, when there is nothing left to spread the money
+            // over — the cell then prints a dash instead of dividing by zero.
+            // A NEGATIVE rate is a real answer, not a missing one (the lot has
+            // already sold for more than it cost), so it must not be lumped in
+            // with "no answer" or the row stops multiplying out.
+            avg: ac && ac.restQty > 0 ? ac.restRate : null,
+            value: ac?.restValue ?? 0,
           };
         })
+        .filter((r) => r.stock !== 0)
         .sort((a, b) => b.value - a.value),
-    [data.items, avgCosts],
+    [data.items, itemCosts],
   );
+  const stockValue = stockRows.reduce((a, r) => a + r.value, 0);
   const topStock = stockRows.slice(0, 6);
   const cashInHand = useMemo(
     () =>
@@ -514,18 +507,15 @@ function Dashboard() {
         </div>
 
         {/* ===== Stock on Hand =====
-            Item name, carats, and what those carats are worth — nothing else.
+            A real table, because that is what the four figures are: one row
+            per item, with Name, Average, Stock and Stock Value as columns that
+            line up down the page. It was a stack of loose lines before, which
+            gave the eye nothing to compare across items.
 
-            This started as a dark "backlit" card led by one big total. The
-            total went because it was already sitting in the right-hand Stats
-            panel as "Stock Value", and printing the same number twice on one
-            screen invites the reader to check whether they match. The
-            magnitude bars went with it: the values are right there, in order,
-            and a bar only restates what the number already says. What is left
-            is the list the counter actually reads.
-
-            Ordinary white card in the app's own blue, like every other card
-            on this dashboard, rather than a colour scheme of its own. */}
+            The three numeric columns are right-aligned and tabular so the
+            digits line up, and Average x Stock = Stock Value reads straight
+            across — see the note on stockRows above for why the value moved
+            onto the client's own basis. */}
         <div className="px-5 pt-5">
           <div className="bg-card border border-border rounded-xl shadow-card overflow-hidden">
             <div className="px-5 py-3.5 border-b border-border flex items-center justify-between gap-3">
@@ -538,8 +528,8 @@ function Dashboard() {
                     Stock on Hand
                   </p>
                   <p className="text-[11px] text-muted-foreground">
-                    {stockRows.length} {stockRows.length === 1 ? "item" : "items"} · valued at
-                    purchase price
+                    {stockRows.length} {stockRows.length === 1 ? "item" : "items"} · value still to
+                    recover
                   </p>
                 </div>
               </div>
@@ -559,38 +549,75 @@ function Dashboard() {
                 No stock on hand yet — add a purchase to see it here.
               </p>
             ) : (
-              <div className="divide-y divide-border">
-                {topStock.map((r) => (
-                  <button
-                    key={r.id}
-                    onClick={() => navigate({ to: "/items/$id", params: { id: r.id } })}
-                    className="w-full text-left px-5 py-3 flex items-center justify-between gap-4 hover:bg-accent/50 transition"
-                  >
-                    <div className="min-w-0">
-                      <p className="text-[13px] font-semibold text-foreground truncate">{r.name}</p>
-                      {/* The carats. Given its own line in the brand blue so
-                          the weight reads as a figure in its own right and not
-                          as a footnote to the money beside it. The average sits
-                          beside it as a RATE — "/ct" spelled out, so it is never
-                          mistaken for another total. */}
-                      <p className="mt-0.5 flex items-baseline gap-2 flex-wrap">
-                        <span
-                          className={`text-[15px] font-bold tabular-nums ${r.stock < 0 ? "text-destructive" : "text-primary"}`}
+              <div className="overflow-x-auto">
+                <table className="w-full text-[13px] min-w-[520px]">
+                  <thead>
+                    <tr className="text-[10px] uppercase tracking-wider text-muted-foreground bg-muted/40">
+                      <th className="text-left font-semibold px-5 py-2">Item Name</th>
+                      <th className="text-right font-semibold px-3 py-2 w-[130px]">Average</th>
+                      <th className="text-right font-semibold px-3 py-2 w-[110px]">Stock</th>
+                      <th className="text-right font-semibold px-5 py-2 w-[150px]">Stock Value</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {topStock.map((r) => (
+                      <tr
+                        key={r.id}
+                        onClick={() => navigate({ to: "/items/$id", params: { id: r.id } })}
+                        className="border-t border-border hover:bg-accent/50 transition cursor-pointer"
+                      >
+                        <td className="px-5 py-2.5 font-semibold text-foreground">
+                          <span className="block truncate max-w-[280px]">{r.name}</span>
+                        </td>
+                        <td
+                          className={`px-3 py-2.5 text-right tabular-nums ${r.avg != null && r.avg < 0 ? "text-destructive" : "text-muted-foreground"}`}
                         >
-                          {fmtQty(r.stock)} {r.unit}
-                        </span>
-                        {r.avg > 0 && (
-                          <span className="text-[12px] font-semibold tabular-nums text-muted-foreground">
-                            avg ₹ {fmt(r.avg)} / {r.unit}
-                          </span>
-                        )}
-                      </p>
-                    </div>
-                    <p className="shrink-0 text-[17px] font-bold text-foreground tabular-nums">
-                      ₹ {fmt(r.value)}
-                    </p>
-                  </button>
-                ))}
+                          {r.avg == null ? "—" : `₹ ${fmt(r.avg)}`}
+                        </td>
+                        <td
+                          className={`px-3 py-2.5 text-right tabular-nums font-semibold ${r.stock < 0 ? "text-destructive" : "text-primary"}`}
+                        >
+                          {fmtQty(r.stock)}
+                          {/* Not every item carries a unit; printing a bare
+                              space after the number looked like a missing word. */}
+                          {r.unit ? ` ${r.unit}` : ""}
+                        </td>
+                        <td
+                          className={`px-5 py-2.5 text-right tabular-nums font-bold ${r.value < 0 ? "text-destructive" : "text-foreground"}`}
+                        >
+                          ₹ {fmt(r.value)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  {stockRows.length > 1 && (
+                    <tfoot>
+                      <tr className="border-t-2 border-border bg-muted/30">
+                        {/* Totals EVERY item, not only the six on show — it is
+                            the same figure as the Stock Value stat beside this
+                            panel, and the two disagreeing would be read as a
+                            bug. When the list is cut short the label says so,
+                            rather than leaving a total that visibly doesn't
+                            add up the column above it. */}
+                        <td className="px-5 py-2.5 text-[11px] uppercase tracking-wider font-semibold text-muted-foreground">
+                          Total
+                          {stockRows.length > topStock.length && (
+                            <span className="ml-1 normal-case tracking-normal font-normal">
+                              (all {stockRows.length} items)
+                            </span>
+                          )}
+                        </td>
+                        <td />
+                        <td />
+                        <td
+                          className={`px-5 py-2.5 text-right tabular-nums font-bold ${stockValue < 0 ? "text-destructive" : "text-foreground"}`}
+                        >
+                          ₹ {fmt(stockValue)}
+                        </td>
+                      </tr>
+                    </tfoot>
+                  )}
+                </table>
               </div>
             )}
           </div>
@@ -680,7 +707,12 @@ function Dashboard() {
       <div className="w-full md:w-[240px] shrink-0 bg-white border-t md:border-t-0 md:border-l border-gray-200 flex flex-col md:overflow-auto">
         <StatRow label="Purchases" badge={periodLabel} value={`₹ ${fmt(totalPurchase)}`} />
         <StatRow label="Expenses" badge={periodLabel} value={`₹ ${fmt(totalExpense)}`} />
-        <StatRow label="Stock Value" badge="As of Now" value={`₹ ${fmt(stockValue)}`} />
+        <StatRow
+          label="Stock Value"
+          badge="As of Now"
+          value={`₹ ${fmt(stockValue)}`}
+          valueClass={stockValue < 0 ? "text-rose-600" : "text-gray-800"}
+        />
         <StatRow
           label="Cash On Hand"
           badge="As of Now"
