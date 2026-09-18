@@ -32,7 +32,8 @@ import { PrintableTaxInvoice } from "@/components/PrintableTaxInvoice";
 import { fmtNum } from "@/lib/gst";
 import { ThermalReceipt } from "@/components/ThermalReceipt";
 import { PrintableReturn } from "@/components/PrintableReturn";
-import { fmtMoney, ymd } from "@/lib/format";
+import { fmtMoney, fmtQty, ymd } from "@/lib/format";
+import { itemWorking, buildAverageCosts } from "@/lib/avgCost";
 import { planStockRepair } from "@/lib/dataRepair";
 import { useEscapeToLeave } from "@/hooks/useFormKeys";
 import { useAppEscape } from "@/hooks/useGoBack";
@@ -1431,6 +1432,76 @@ async function runAll(): Promise<Results> {
     }
   }
 
+  /* ── The average working reaches the item page ────────────────────────
+     The client prices on the Average, and when it looked wrong there was
+     nothing on screen to check it against — only the single figure. The
+     item page now prints the whole working, their spreadsheet's layout, so
+     a disagreement can be traced to the line that causes it.
+
+     What matters here is not that a table exists but that it AGREES: the
+     totals on it and the Average stat above it are the same number. A
+     working that quietly showed something else would be worse than none. */
+  {
+    const page = await renderRoute("/items/I1");
+    assert(page.includes("Average Working"), "working: the item page carries the working");
+    assert(
+      page.includes("Purchase") && page.includes("Sale"),
+      "working: both halves of the sheet are there",
+    );
+
+    const w = itemWorking("I1", {
+      item: ItemRepo.get("I1")!,
+      purchases: PurchaseRepo.all(),
+      sales: SalesRepo.all(),
+      saleReturns: SaleReturnRepo.all(),
+      purchaseReturns: PurchaseReturnRepo.all(),
+      adjustments: StockAdjustmentRepo.all(),
+    });
+    // Seeded history, or this proves nothing at all.
+    assert(w.purchases.length > 0, `working: I1 has purchase rows to show — ${w.purchases.length}`);
+    assert(w.sales.length > 0, `working: I1 has sale rows to show — ${w.sales.length}`);
+
+    assert(
+      page.includes(fmtQty(w.boughtQty)),
+      `working: the bought carat total is on screen — want ${fmtQty(w.boughtQty)}`,
+    );
+    assert(
+      page.includes(fmtQty(w.boughtValue)),
+      `working: the bought money total is on screen — want ${fmtQty(w.boughtValue)}`,
+    );
+    assert(
+      page.includes(fmtQty(w.soldValue)),
+      `working: what was realised is on screen — want ${fmtQty(w.soldValue)}`,
+    );
+    assert(
+      page.includes(fmtQty(w.restValue)),
+      `working: the money still to recover is on screen — want ${fmtQty(w.restValue)}`,
+    );
+
+    // THE assertion: the working and the Average stat are one figure.
+    const ac = buildAverageCosts({
+      items: ItemRepo.all(),
+      purchases: PurchaseRepo.all(),
+      sales: SalesRepo.all(),
+      saleReturns: SaleReturnRepo.all(),
+      purchaseReturns: PurchaseReturnRepo.all(),
+      adjustments: StockAdjustmentRepo.all(),
+    }).get("I1")!;
+    assert(
+      Math.abs(w.restRate - ac.restRate) < 0.01,
+      `working: the working's per-unit IS the Average — working ${w.restRate}, stat ${ac.restRate}`,
+    );
+    assert(
+      w.restQty > 0 && page.includes(fmtMoney(ac.restRate)),
+      `working: and that figure is printed — want ${fmtMoney(ac.restRate)}`,
+    );
+
+    // The sheet has to read across, on screen as on paper.
+    assert(
+      Math.abs(w.boughtValue - w.soldValue - w.restValue) < 0.02,
+      "working: purchases less sales is what is left",
+    );
+  }
   /* ── Back is ONE step, by key as well as by button ────────────────────
      The detail pages used to navigate FORWARD to their list, which pushes a
      new history entry — so the browser's own Back button then returned to

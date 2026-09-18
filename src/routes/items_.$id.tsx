@@ -16,6 +16,7 @@ import { ItemDialog, StockAdjustDialog } from "./items";
 import { usePermissions } from "@/hooks/usePermissions";
 import { useRepoData, useRepoMemo } from "@/hooks/useRepoData";
 import { buildAverageCosts } from "@/lib/avgCost";
+import { ItemAverageWorking } from "@/components/ItemAverageWorking";
 import type { Item, Invoice, Return } from "@/types";
 import {
   ArrowLeft,
@@ -302,8 +303,14 @@ function ItemDetailPage() {
         </div>
       </div>
 
-      {/* History */}
       <div className="flex-1 overflow-auto p-5">
+        {/* The working behind the Average stat above, in the layout the
+            client reconciles against. It goes FIRST because the average is
+            the figure they price on: when it looks wrong, this is the thing
+            they need, and the movement history below does not answer it. */}
+        <ItemAverageWorking item={item} />
+
+        {/* History */}
         <div className="bg-white border rounded-lg shadow-sm overflow-hidden max-w-5xl mx-auto flex flex-col">
           <div className="px-5 py-3 border-b">
             <p className="text-sm font-bold text-gray-800">Transaction History</p>

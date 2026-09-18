@@ -38,7 +38,7 @@ import type {
 } from "@/types";
 import { Repository } from "@/repositories/base";
 import { correctBankPaidAmount, planBankRepair } from "@/lib/bankRepair";
-import { buildAverageCosts } from "@/lib/avgCost";
+import { buildAverageCosts, itemWorking } from "@/lib/avgCost";
 import {
   financialYearOf,
   formatBillNumber,
@@ -2035,6 +2035,26 @@ console.log(`\n═════════════════════�
       purchaseReturns: (o.purchaseReturns ?? []) as unknown as Return[],
       adjustments: o.adjustments ?? [],
     }).get("AC1")!;
+  /** The same inputs, worked the client's way: their CVD sheet, line by
+   * line. It exists to EXPLAIN the figure avc() returns, so the audit pins
+   * the two together below — a working that disagreed with the average it
+   * is captioning would be worse than no working at all. */
+  const wk = (o: {
+    item?: Item;
+    purchases?: Invoice[];
+    sales?: Invoice[];
+    saleReturns?: Invoice[];
+    purchaseReturns?: Invoice[];
+    adjustments?: StockAdjustment[];
+  }) =>
+    itemWorking("AC1", {
+      item: o.item ?? AI(),
+      purchases: o.purchases ?? [],
+      sales: o.sales ?? [],
+      saleReturns: (o.saleReturns ?? []) as unknown as Return[],
+      purchaseReturns: (o.purchaseReturns ?? []) as unknown as Return[],
+      adjustments: o.adjustments ?? [],
+    });
 
   /* ── The client's spreadsheet ─────────────────────────────────────────
        bought  5.20 ct   33,332
@@ -2156,9 +2176,9 @@ console.log(`\n═════════════════════�
     const sell = (date: string, ct: number, total: number, id: string) =>
       AD(date, [{ qty: ct, price: total / ct, gstRate: 1.5 }], id);
 
-    const cvd = avc({
-      // Opening stock is the sheet's own "OPNING" row — carried as a purchase
-      // with no GST, which is exactly how they enter it.
+    // Opening stock is the sheet's own "OPNING" row — carried as a purchase
+    // with no GST, which is exactly how they enter it.
+    const cvdInput = {
       purchases: [
         AD("2026-04-01", [{ qty: 14.37, price: 474181.26 / 14.37, gstRate: 0 }], "OPNING"),
         buy("2026-06-03", 16.1, 142658.08, "KIRA1"),
@@ -2179,7 +2199,8 @@ console.log(`\n═════════════════════�
         sell("2026-08-22", 3.04, 68893.9, "S8"),
         sell("2026-09-02", 1.3, 21922, "S9"),
       ],
-    });
+    };
+    const cvd = avc(cvdInput);
 
     assert(approx(cvd.boughtQty, 67.25), "CVD: 67.25 ct bought");
     assert(approx(cvd.boughtValue, 953947.17, 1), "CVD: 9,53,947 bought, ex-GST");
@@ -2195,6 +2216,103 @@ console.log(`\n═════════════════════�
       !approx(cvd.restRate, 17693.49, 1) && !approx(cvd.restRate, 17244.83, 1),
       "CVD: not the both-ex-GST nor the both-incl-GST reading",
     );
+
+    /* ── The working shown on the item page IS this average ──────────────
+       The client reconciles against their sheet, so the app now prints the
+       sheet. These assertions are what make that printed working evidence
+       rather than decoration: every total on it is pinned to the figure it
+       is there to explain, so the two cannot drift apart in a later edit. */
+    const w = wk(cvdInput);
+    assert(w.purchases.length === 9, "WORKING: nine purchase rows, OPNING first");
+    // This fixture carries opening stock as its own document (as the client
+    // enters it), so it appears in date order like any other purchase; the
+    // item.openingStock path gets its own OPENING row, covered below.
+    assert(w.purchases[0].ref === "OPNING", "WORKING: the OPNING row leads the purchase side");
+    assert(w.sales.length === 7, "WORKING: seven sale rows");
+    assert(approx(w.boughtQty, cvd.boughtQty), "WORKING: CT column totals the bought carat");
+    assert(approx(w.boughtValue, cvd.boughtValue, 1), "WORKING: TOTAL RS totals the bought value");
+    assert(approx(w.soldQty, cvd.soldQty), "WORKING: sale CT column totals the sold carat");
+    assert(approx(w.soldValue, cvd.soldValue, 2), "WORKING: sale TOTAL GST totals what was realised");
+    assert(approx(w.restQty, cvd.restQty), "WORKING: STOCK agrees with the average carat left");
+    assert(approx(w.restValue, cvd.restValue, 2), "WORKING: TOTAL RS agrees with the money to recover");
+    assert(approx(w.restRate, cvd.restRate, 0.5), "WORKING: PER CARAT is the same 16,522 the app shows");
+
+    // And it reads across the way their sheet reads: bought less sold.
+    assert(
+      approx(w.boughtValue - w.soldValue, w.restValue, 0.02),
+      "WORKING: the sheet adds up — purchases less sales is what is left",
+    );
+    assert(
+      approx(w.restRate * w.restQty, w.restValue, 0.1),
+      "WORKING: PER CARAT times STOCK is TOTAL RS",
+    );
+
+    // GST is columned separately on the purchase side, so 1.5% must show
+    // there and never be folded into TOTAL RS (which is ex-GST).
+    assert(w.boughtGst > 0, "WORKING: the purchase GST column is filled in");
+    assert(
+      approx(w.purchases[1].gst, w.purchases[1].taxable * 0.015, 0.02),
+      "WORKING: a purchase row carries its own 1.5% GST",
+    );
+  }
+
+  /* Opening stock entered on the ITEM rather than as a document still has to
+     appear on the working, or the sheet would start mid-story and its total
+     would not match the average. */
+  {
+    const w = wk({
+      item: AI({ openingStock: 2, purchasePrice: 1000 }),
+      purchases: [AD("2026-01-02", [{ qty: 3, price: 1200 }], "b1")],
+      sales: [AD("2026-01-03", [{ qty: 1, price: 1500 }], "s1")],
+    });
+    assert(w.purchases[0].party === "OPENING", "WORKING: item opening stock leads the sheet");
+    assert(approx(w.purchases[0].taxable, 2000), "WORKING: opening stock valued at the purchase price");
+    assert(approx(w.boughtQty, 5), "WORKING: opening stock counts in the carat total");
+    assert(approx(w.boughtValue, 5600), "WORKING: opening stock counts in the money total");
+    assert(approx(w.restQty, 4), "WORKING: 5 in, 1 out, 4 left");
+    assert(approx(w.restRate, 1025), "WORKING: (5,600 - 1,500) / 4");
+
+    const c = avc({
+      items: [AI({ openingStock: 2, purchasePrice: 1000 })],
+      purchases: [AD("2026-01-02", [{ qty: 3, price: 1200 }], "b1")],
+      sales: [AD("2026-01-03", [{ qty: 1, price: 1500 }], "s1")],
+    });
+    assert(approx(w.restRate, c.restRate, 0.01), "WORKING: still the same rate the item page shows");
+  }
+
+  /* A return has to come off the column it belongs to, as a negative row,
+     or the working would total more than was ever bought or sold. */
+  {
+    const w = wk({
+      purchases: [AD("2026-01-01", [{ qty: 10, price: 100 }], "b1")],
+      sales: [AD("2026-01-02", [{ qty: 4, price: 150 }], "s1")],
+      saleReturns: [AD("2026-01-03", [{ qty: 1, price: 150 }], "r1")],
+      purchaseReturns: [AD("2026-01-04", [{ qty: 2, price: 100 }], "r2")],
+    });
+    assert(w.purchases.length === 2 && w.purchases[1].isReturn, "WORKING: a purchase return is its own row");
+    assert(w.purchases[1].qty === -2, "WORKING: a returned carat is negative on the sheet");
+    assert(approx(w.boughtQty, 8), "WORKING: 10 bought less 2 sent back");
+    assert(approx(w.boughtValue, 800), "WORKING: and the money comes off with it");
+    assert(w.sales.length === 2 && w.sales[1].isReturn, "WORKING: a sale return is its own row");
+    assert(approx(w.soldQty, 3), "WORKING: 4 sold less 1 taken back");
+    assert(approx(w.soldValue, 450), "WORKING: and only 450 was really realised");
+    assert(approx(w.restQty, 5), "WORKING: 8 in, 3 out, 5 left");
+    assert(approx(w.restValue, 350), "WORKING: 800 less 450 still to recover");
+  }
+
+  /* A stock correction moves carats and no money, so it must move STOCK and
+     leave every money column alone — which is what makes the rate jump. */
+  {
+    const w = wk({
+      purchases: [AD("2026-01-01", [{ qty: 10, price: 100 }], "b1")],
+      adjustments: [
+        { id: "j1", itemId: "AC1", itemName: "Stone", date: "2026-01-02", type: "reduce", qty: 2, createdAt: "2026-01-02T00:00:00Z" } as StockAdjustment,
+      ],
+    });
+    assert(approx(w.adjustQty, -2), "WORKING: the correction is carried separately");
+    assert(approx(w.boughtValue, 1000), "WORKING: a correction moves no money");
+    assert(approx(w.restQty, 8), "WORKING: but it does move the stock");
+    assert(approx(w.restRate, 125), "WORKING: so the rest must fetch more — 1,000 over 8");
   }
 
   // A bill of supply has no GST to add, so selling is just its taxable value.

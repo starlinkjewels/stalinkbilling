@@ -213,3 +213,173 @@ export function buildAverageCosts(input: {
   }
   return out;
 }
+
+/** One line of the working, laid out as the client's own sheet lays it out:
+ * DATE · PARTY · CT · P/CT · TOTAL RS · GST · TOTAL GST. */
+export interface WorkingRow {
+  id: string;
+  date: string;
+  party: string;
+  /** Bill / note number. */
+  ref: string;
+  /** Negative on a return, so the column still adds up to the total. */
+  qty: number;
+  /** P/CT — what one carat went at on this line. */
+  rate: number;
+  /** TOTAL RS — the line value before tax, after any line discount. */
+  taxable: number;
+  gst: number;
+  /** TOTAL GST — taxable + gst. */
+  gross: number;
+  /** A return, shown so a negative row isn't read as a typo. */
+  isReturn: boolean;
+}
+
+export interface ItemWorking {
+  /** Opening stock as its own row, exactly as their sheet's "OPNING" line. */
+  purchases: WorkingRow[];
+  sales: WorkingRow[];
+  /** Purchase side totals — the money side is EX-GST (their TOTAL RS column). */
+  boughtQty: number;
+  boughtValue: number;
+  boughtGst: number;
+  /** Sale side totals — the money side is INCL-GST (their TOTAL RS column,
+   * which on the sale half equals their TOTAL GST column). */
+  soldQty: number;
+  soldValue: number;
+  soldGst: number;
+  /** Carats moved by a stock correction — no money, so it shifts only STOCK. */
+  adjustQty: number;
+  restQty: number;
+  restValue: number;
+  restRate: number;
+}
+
+/**
+ * The client's CVD sheet for one item, worked line by line.
+ *
+ * The point of this is NOT to compute the average a second time — it is to
+ * SHOW the one that buildAverageCosts already produced, in the layout they
+ * reconcile against, so a disagreement between the app and their Excel can be
+ * found on the line it happens rather than argued about as a single number.
+ *
+ * Its totals are built by exactly the rules buildAverageCosts uses — ex-GST on
+ * the buying side, GST-inclusive on the selling side — and the audit pins the
+ * two against each other, so the working can never drift from the figure it
+ * is supposed to explain.
+ */
+export function itemWorking(
+  itemId: string,
+  input: {
+    item: Item;
+    purchases: Invoice[];
+    sales: Invoice[];
+    saleReturns: Return[];
+    purchaseReturns: Return[];
+    adjustments: StockAdjustment[];
+  },
+): ItemWorking {
+  const taxableOf = (l: Invoice["lineItems"][number]) =>
+    l.qty * l.price * (1 - (l.discountPct ?? 0) / 100);
+
+  /**
+   * Every row carries its OWN tax, on both halves of the sheet — their
+   * purchase half has a GST column too, and showing it as zero there would
+   * make the working look wrong even though the average was right.
+   *
+   * What differs between the halves is not the row, it is which column is
+   * totalled: buying totals TOTAL RS (ex-GST), selling totals TOTAL GST
+   * (incl). See lineValue for why that asymmetry is the client's method.
+   */
+  const rowsFrom = (
+    docs: { id: string; number: string; date: string; partyName: string; gstEnabled?: boolean; lineItems: Invoice["lineItems"] }[],
+    sign: 1 | -1,
+    isReturn: boolean,
+  ): WorkingRow[] => {
+    const out: WorkingRow[] = [];
+    for (const d of docs) {
+      for (const l of d.lineItems) {
+        if (l.itemId !== itemId) continue;
+        const taxable = taxableOf(l);
+        // A bill of supply carries no tax, whatever the line's rate says.
+        const gstRate = d.gstEnabled !== false ? (l.gstRate ?? 0) : 0;
+        const gst = taxable * (gstRate / 100);
+        out.push({
+          id: d.id,
+          date: d.date,
+          party: d.partyName,
+          ref: d.number,
+          qty: sign * l.qty,
+          rate: l.qty ? taxable / l.qty : 0,
+          taxable: r2(sign * taxable),
+          gst: r2(sign * gst),
+          gross: r2(sign * (taxable + gst)),
+          isReturn,
+        });
+      }
+    }
+    return out;
+  };
+
+  const byDate = (a: WorkingRow, b: WorkingRow) => a.date.localeCompare(b.date);
+
+  // Opening stock leads the purchase side, as "OPNING" does on their sheet.
+  const opening: WorkingRow[] =
+    (input.item.openingStock || 0) !== 0
+      ? [
+          {
+            id: "opening",
+            date: input.item.createdAt.slice(0, 10),
+            party: "OPENING",
+            ref: "—",
+            qty: input.item.openingStock || 0,
+            rate: input.item.purchasePrice || 0,
+            taxable: r2((input.item.openingStock || 0) * (input.item.purchasePrice || 0)),
+            gst: 0,
+            gross: r2((input.item.openingStock || 0) * (input.item.purchasePrice || 0)),
+            isReturn: false,
+          },
+        ]
+      : [];
+
+  const purchases = [
+    ...opening,
+    ...rowsFrom(input.purchases, 1, false).sort(byDate),
+    ...rowsFrom(input.purchaseReturns, -1, true).sort(byDate),
+  ];
+  const sales = [
+    ...rowsFrom(input.sales, 1, false).sort(byDate),
+    ...rowsFrom(input.saleReturns, -1, true).sort(byDate),
+  ];
+
+  const sum = (rows: WorkingRow[], k: "qty" | "taxable" | "gst" | "gross") =>
+    r2(rows.reduce((a, r) => a + r[k], 0));
+
+  const boughtQty = sum(purchases, "qty");
+  const boughtValue = sum(purchases, "taxable");
+  const soldQty = sum(sales, "qty");
+  const soldValue = sum(sales, "gross");
+  const adjustQty = r2(
+    input.adjustments
+      .filter((a) => a.itemId === itemId)
+      .reduce((s, a) => s + (a.type === "add" ? a.qty : -a.qty), 0),
+  );
+
+  const restQty = r2(boughtQty - soldQty + adjustQty);
+  const restValue = r2(boughtValue - soldValue);
+
+  return {
+    purchases,
+    sales,
+    boughtQty,
+    boughtValue,
+    boughtGst: sum(purchases, "gst"),
+    soldQty,
+    soldValue,
+    soldGst: sum(sales, "gst"),
+    adjustQty,
+    restQty,
+    restValue,
+    restRate: restQty > 0 ? r2(restValue / restQty) : 0,
+  };
+}
